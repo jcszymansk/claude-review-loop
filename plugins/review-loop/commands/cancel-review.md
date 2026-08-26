@@ -20,6 +20,8 @@ Then remove the state file, lock file, and any generated reviewer files:
 rm -f .claude/review-loop.local.json .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries
 ```
 
+Leave `reviews/<review_id>/` untouched. It contains the review history and must remain available after cancellation.
+
 Report: "Review loop cancelled (was at phase: X, review ID: Y)"
 
 If no review loop was active, report: "No active review loop found."

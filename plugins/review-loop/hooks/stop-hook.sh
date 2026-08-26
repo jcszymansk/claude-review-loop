@@ -38,6 +38,11 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 HOOK_INPUT=$(cat)
 
 STATE_FILE=".claude/review-loop.local.json"
+cleanup_runtime_files() {
+  # Keep reviews/${REVIEW_ID:-unknown}/ intact; it is the permanent loop history.
+  rm -f "$STATE_FILE" .claude/review-loop.lock
+  cleanup_generated_files
+}
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
 
@@ -49,7 +54,7 @@ fi
 
 if ! command -v jq >/dev/null 2>&1; then
   log "ERROR: jq is required to read state"
-  rm -f "$STATE_FILE"
+  cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -65,7 +70,7 @@ if ! jq -e '
   and (.review_id | type == "string")
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
-  rm -f "$STATE_FILE"
+  cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -106,7 +111,7 @@ if ! ACTIVE=$(parse_field "active") ||
   ! MAX_ROUNDS=$(parse_field "max_rounds") ||
   ! REVIEW_ID=$(parse_field "review_id"); then
   log "ERROR: failed to read JSON state file"
-  rm -f "$STATE_FILE"
+  cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -118,7 +123,7 @@ fi
 
 # Not active → clean up and exit
 if [ "$ACTIVE" != "true" ]; then
-  rm -f "$STATE_FILE"
+  cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -126,7 +131,7 @@ fi
 # Validate review_id format to prevent path traversal
 if ! echo "$REVIEW_ID" | grep -qE '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'; then
   log "ERROR: invalid review_id format: $REVIEW_ID"
-  rm -f "$STATE_FILE"
+  cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 
@@ -159,7 +164,7 @@ case "$REVIEWER" in
     ;;
   *)
     log "ERROR: unsupported reviewer: $REVIEWER"
-    rm -f "$STATE_FILE"
+    cleanup_runtime_files
     printf '{"decision":"approve"}\n'
     exit 0
     ;;
@@ -405,7 +410,7 @@ case "$PHASE" in
     # reviewer via Bash so its output streams to the user.
     if ! mkdir -p "$REVIEW_DIR"; then
       log "ERROR: failed to create review directory: $REVIEW_DIR"
-      rm -f "$STATE_FILE"
+      cleanup_runtime_files
       printf '{"decision":"approve"}\n'
       exit 0
     fi
@@ -413,7 +418,7 @@ case "$PHASE" in
 
     if ! command -v "$REVIEWER_CLI" &> /dev/null; then
       log "ERROR: $REVIEWER_CLI not found on PATH"
-      rm -f "$STATE_FILE"
+      cleanup_runtime_files
       REASON="ERROR: ${REVIEWER_NAME} CLI (${REVIEWER_CLI}) is not installed. The review loop requires ${REVIEWER_NAME} for independent code review.
 
 Install it: ${REVIEWER_INSTALL}
@@ -430,7 +435,7 @@ Then run /review-loop again."
       CODEX_CONFIG="${HOME}/.codex/config.toml"
       if [ ! -f "$CODEX_CONFIG" ] || ! grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
         log "ERROR: multi_agent not enabled in $CODEX_CONFIG"
-        rm -f "$STATE_FILE"
+        cleanup_runtime_files
         REASON="ERROR: Codex multi-agent is not enabled in ~/.codex/config.toml. This should have been configured by /review-loop but may have been changed.
 
 Add to ~/.codex/config.toml:
@@ -482,7 +487,7 @@ RUNNER_EOF
     # a failed transition leaves phase=task and the next stop re-runs everything.
     if ! transition_phase "addressing"; then
       log "ERROR: phase transition failed, cleaning up"
-      rm -f "$STATE_FILE" "$RUNNER_SCRIPT" "$PROMPT_FILE"
+      cleanup_runtime_files
       printf '{"decision":"approve"}\n'
       exit 0
     fi
@@ -519,8 +524,7 @@ Use your own judgment. Do not blindly accept every suggestion."
     if [ -f "$REVIEW_FILE" ]; then
       if VERDICT=$(parse_verdict "$REVIEW_FILE"); then
         log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER, verdict=$VERDICT)"
-        rm -f "$STATE_FILE" .claude/review-loop.lock
-        cleanup_generated_files
+        cleanup_runtime_files
         printf '{"decision":"approve"}\n'
       else
         log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"
@@ -546,8 +550,7 @@ bash ${RUNNER_SCRIPT}
       if [ "$RETRY_COUNT" -ge 2 ]; then
         # Already told Claude to run the script once — reviewer failed, don't retry
         log "ERROR: $REVIEWER failed to produce review, failing open (review_id=$REVIEW_ID)"
-        rm -f "$STATE_FILE" .claude/review-loop.lock
-        cleanup_generated_files
+        cleanup_runtime_files
         printf '{"decision":"approve"}\n'
       else
         echo "$RETRY_COUNT" > "$RETRY_FILE"
@@ -567,8 +570,7 @@ Then read ${REVIEW_FILE} and address the findings."
     else
       # Neither review nor runner script — orphaned state, fail-open
       log "ERROR: review file and runner script both missing, cleaning up (review_id=$REVIEW_ID)"
-      rm -f "$STATE_FILE" .claude/review-loop.lock
-      cleanup_generated_files
+      cleanup_runtime_files
       printf '{"decision":"approve"}\n'
     fi
     ;;
@@ -576,8 +578,7 @@ Then read ${REVIEW_FILE} and address the findings."
   *)
     # Unknown phase — clean up and allow exit
     log "WARN: unknown phase '$PHASE', cleaning up"
-    rm -f "$STATE_FILE" .claude/review-loop.lock
-    cleanup_generated_files
+    cleanup_runtime_files
     printf '{"decision":"approve"}\n'
     ;;
 esac

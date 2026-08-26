@@ -70,6 +70,12 @@ assert_missing_cli() {
   local output
 
   write_state "$reviewer"
+  mkdir -p "$REVIEW_DIR"
+  printf 'retained review history\n' > "$REVIEW_DIR/summary-0.md"
+  touch \
+    "$PROJECT_DIR/.claude/review-loop-run-codex.sh" \
+    "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt" \
+    "$PROJECT_DIR/.claude/review-loop-retries"
   output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 
   if ! jq -e --arg cli "$cli" --arg name "$name" --arg install "$install" \
@@ -88,6 +94,20 @@ assert_missing_cli() {
     printf 'FAIL: missing %s CLI left active state behind\n' "$reviewer" >&2
     exit 1
   fi
+  for generated_file in \
+    "$PROJECT_DIR/.claude/review-loop-run-codex.sh" \
+    "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt" \
+    "$PROJECT_DIR/.claude/review-loop-retries"; do
+    if [ -e "$generated_file" ]; then
+      printf 'FAIL: missing %s CLI left generated runtime file: %s\n' "$reviewer" "$generated_file" >&2
+      exit 1
+    fi
+  done
+
+  if [ "$(cat "$REVIEW_DIR/summary-0.md")" != 'retained review history' ]; then
+    printf 'FAIL: missing %s CLI removed review history\n' "$reviewer" >&2
+    exit 1
+  fi
 }
 
 assert_missing_cli codex codex Codex 'npm install -g @openai/codex'
@@ -97,6 +117,9 @@ assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/i
 write_addressing_state
 mkdir -p "$REVIEW_DIR"
 : > "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
+printf 'implementation summary\n' > "$REVIEW_DIR/summary-0.md"
+printf 'first correction summary\n' > "$REVIEW_DIR/summary-1.md"
+printf 'later round review\n' > "$REVIEW_DIR/review-2.md"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FILE" ]; then
   printf 'FAIL: addressing path did not block without a review: %s\n' "$output" >&2
@@ -144,6 +167,19 @@ assert_review_decision $'VERDICT: PASS\nNo findings.' approve
 
 if [ ! -d "$REVIEW_DIR" ]; then
   printf 'FAIL: review loop directory was removed with the state\n' >&2
+  exit 1
+fi
+
+for artifact in summary-0.md summary-1.md review-2.md; do
+  if [ ! -s "$REVIEW_DIR/$artifact" ]; then
+    printf 'FAIL: PASS cleanup removed retained artifact: %s\n' "$artifact" >&2
+    exit 1
+  fi
+done
+if [ "$(cat "$REVIEW_DIR/summary-0.md")" != 'implementation summary' ] ||
+  [ "$(cat "$REVIEW_DIR/summary-1.md")" != 'first correction summary' ] ||
+  [ "$(cat "$REVIEW_DIR/review-2.md")" != 'later round review' ]; then
+  printf 'FAIL: PASS cleanup modified retained review history\n' >&2
   exit 1
 fi
 

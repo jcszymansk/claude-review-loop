@@ -102,6 +102,8 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a numbered reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
 3. If in `addressing` phase: verifies the current numbered review has a valid verdict. Missing or malformed verdicts are treated as `FAIL` and keep the loop blocked; a valid review then allows exit and cleans up
+The hook removes runtime state and generated runner files only. It never removes `reviews/<id>/`, so summaries and review output remain available after `PASS`, reviewer errors, round-limit termination, or cancellation.
+
 
 State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/` containing `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs.
 

@@ -80,7 +80,7 @@ Replace ad-hoc phase parsing with explicit per-loop state and artifacts.
 - [x] Require the first review line to be exactly `VERDICT: PASS` or `VERDICT: FAIL`.
 - [x] Treat an absent or malformed verdict as `FAIL`.
 - [x] Make the runner capture the review result into the round artifact where possible.
-- [ ] Keep all review artifacts when the loop reaches `PASS`, `MAX_ROUNDS_REACHED`, `REVIEWER_ERROR`, or `CANCELLED`.
+- [x] Keep all review artifacts when the loop reaches `PASS`, `MAX_ROUNDS_REACHED`, `REVIEWER_ERROR`, or `CANCELLED`.
 
 Proposed outcomes:
 
