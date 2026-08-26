@@ -105,7 +105,7 @@ Add the review, correction, and re-review loop.
 - [x] Ask Claude to read the full round history before changing code.
 - [x] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [x] Continue until `PASS` or the configured maximum round count.
-- [ ] Make the round limit configurable, with a bounded default.
+- [x] Make the round limit configurable, with a bounded default.
 - [ ] Support cancellation that stops child processes without deleting review history.
 - [ ] Prevent correction-session Stop hooks from recursively starting another orchestrator.
 

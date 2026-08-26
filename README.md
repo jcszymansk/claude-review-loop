@@ -123,6 +123,7 @@ claude-review-loop/
 ├── scripts/
 │   ├── setup-review-loop.sh  # Argument parsing, state file creation
 │   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
+│   ├── resolve-max-rounds.sh # Round-limit selection and validation
 │   ├── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
 │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
 ├── AGENTS.md                  # Agent operating guidelines
@@ -134,7 +135,7 @@ claude-review-loop/
 
 The stop hook timeout is set to 600 seconds in `hooks/hooks.json` because reviewer CLIs can take several minutes. The hook runs the selected reviewer directly and records its output in `.claude/review-loop.log`; stdout remains reserved for the hook's JSON decision.
 
-### Reviewer selection
+### Reviewer and round limit
 
 The reviewer is resolved in this order:
 
@@ -143,20 +144,30 @@ The reviewer is resolved in this order:
 3. `${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml`
 4. `codex`
 
+The round limit is resolved in this order:
+
+1. `REVIEW_LOOP_MAX_ROUNDS`, when set
+2. `max_rounds` in `.review-loop.toml`
+3. `max_rounds` in `${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml`
+4. `3`
+
 Project and user configuration files use this format:
 
 ```toml
 reviewer = "cursor"
+max_rounds = 5
 ```
 
-Supported reviewers are `codex`, `gemini`, and `cursor`.
-Malformed configuration causes reviewer resolution to fail instead of silently falling back to another source.
+Supported reviewers are `codex`, `gemini`, and `cursor`. `max_rounds` must be
+an integer from 1 to 10. Malformed reviewer configuration or an invalid round
+limit causes setup to fail instead of silently falling back to another source.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. |
+| `REVIEW_LOOP_MAX_ROUNDS` | `3` | Maximum review rounds, from 1 to 10. Overrides project and user configuration. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
 | `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Override the flags passed to `gemini` after its non-interactive prompt. |
 | `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |

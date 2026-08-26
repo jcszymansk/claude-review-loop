@@ -34,7 +34,7 @@ case "$REVIEWER" in
     ;;
 esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-MAX_ROUNDS=3
+MAX_ROUNDS="$("${CLAUDE_PLUGIN_ROOT}/scripts/resolve-max-rounds.sh")"
 mkdir -p .claude reviews
 STATE_FILE=".claude/review-loop.local.json"
 if [ -f "$STATE_FILE" ]; then

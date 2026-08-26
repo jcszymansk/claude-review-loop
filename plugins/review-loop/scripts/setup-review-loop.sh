@@ -19,6 +19,7 @@ Starts a review loop:
 
 Environment variables:
   REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor
+  REVIEW_LOOP_MAX_ROUNDS  Maximum review rounds, from 1 to 10 (default: 3)
   REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
   REVIEW_LOOP_GEMINI_FLAGS  Override Gemini flags (default: --output-format text)
   REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text)
@@ -28,10 +29,13 @@ Configuration files:
   ~/.config/review-loop/config.toml  User reviewer configuration
 
 The reviewer is resolved in this order: REVIEW_LOOP_REVIEWER, project
-configuration, user configuration, then codex.
+configuration, user configuration, then codex. The round limit is resolved
+from REVIEW_LOOP_MAX_ROUNDS, project configuration, user configuration, then
+the default of 3.
 
 Configuration format:
   reviewer = "cursor"
+  max_rounds = 5
 
 
 Example:
@@ -57,6 +61,7 @@ if [ -z "$PROMPT" ]; then
   echo "Usage: /review-loop <task description>"
   exit 1
 fi
+MAX_ROUNDS="$("$SCRIPT_DIR/resolve-max-rounds.sh")"
 
 case "$REVIEWER" in
   codex)
@@ -113,7 +118,6 @@ fi
 
 printf '# Review Loop Task Context\n\n%s\n' "$PROMPT" > "$LOOP_DIR/summary-0.md"
 
-MAX_ROUNDS=3
 
 # Clean up stale lock from previous runs
 rm -f .claude/review-loop.lock
