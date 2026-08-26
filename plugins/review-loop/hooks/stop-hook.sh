@@ -7,9 +7,10 @@
 #
 # On any error, default to allowing exit (never trap the user in a broken loop).
 #
-# Environment variables:
-#   REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor (default: codex)
-#   REVIEW_LOOP_CODEX_FLAGS  Override codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+# Reviewer selection:
+#   REVIEW_LOOP_REVIEWER, .review-loop.toml, and
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml (default: codex)
+# REVIEW_LOOP_CODEX_FLAGS  Override codex flags (default: --dangerously-bypass-approvals-and-sandbox)
 
 LOG_FILE=".claude/review-loop.log"
 log() {
@@ -42,6 +43,34 @@ if [ ! -f "$STATE_FILE" ]; then
   exit 0
 fi
 
+# Parse a reviewer from a simple TOML config file.
+read_config_reviewer() {
+  local config_file="$1"
+  local reviewer
+
+  reviewer=$(sed -nE 's/^[[:space:]]*reviewer[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*(#.*)?$/\1/p' "$config_file" | head -n 1)
+  if [ -z "$reviewer" ]; then
+    log "ERROR: $config_file must define reviewer = \"codex|gemini|cursor\""
+    return 1
+  fi
+  printf '%s\n' "$reviewer"
+}
+
+resolve_reviewer() {
+  local project_config=".review-loop.toml"
+  local user_config="${XDG_CONFIG_HOME:-${HOME:-$PWD/.config}}/review-loop/config.toml"
+
+  if [ -n "${REVIEW_LOOP_REVIEWER:-}" ]; then
+    printf '%s\n' "$REVIEW_LOOP_REVIEWER"
+  elif [ -f "$project_config" ]; then
+    read_config_reviewer "$project_config"
+  elif [ -f "$user_config" ]; then
+    read_config_reviewer "$user_config"
+  else
+    printf 'codex\n'
+  fi
+}
+
 # Parse a field from the YAML frontmatter
 parse_field() {
   sed -n "s/^${1}: *//p" "$STATE_FILE" | head -1
@@ -51,8 +80,9 @@ ACTIVE=$(parse_field "active")
 PHASE=$(parse_field "phase")
 REVIEW_ID=$(parse_field "review_id")
 REVIEWER=$(parse_field "reviewer")
-REVIEWER=${REVIEWER:-codex}
-
+if [ -z "$REVIEWER" ]; then
+  REVIEWER=$(resolve_reviewer) || REVIEWER=""
+fi
 
 # Not active → clean up and exit
 if [ "$ACTIVE" != "true" ]; then
