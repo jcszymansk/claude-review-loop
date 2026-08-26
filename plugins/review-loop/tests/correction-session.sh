@@ -38,6 +38,10 @@ cat > "$BIN_DIR/codex" <<'CODEX_EOF'
 printf 'VERDICT: FAIL\nneeds correction\n' > "$FAKE_REVIEW_FILE"
 CODEX_EOF
 chmod +x "$BIN_DIR/codex"
+for command_name in bash cat chmod date dirname env grep head jq mkdir mv ps rm tee; do
+  ln -s "$(command -v "$command_name")" "$NO_CLAUDE_BIN_DIR/$command_name"
+done
+ln -s "$BIN_DIR/codex" "$NO_CLAUDE_BIN_DIR/codex"
 
 cat > "$BIN_DIR/claude" <<'CLAUDE_EOF'
 #!/usr/bin/env bash
@@ -46,7 +50,6 @@ printf '%s' "${!#}" > "$FAKE_CLAUDE_PROMPT_FILE"
 printf '%s' "${REVIEW_LOOP_CORRECTION:-}" > "$FAKE_CLAUDE_ENV_FILE"
 printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_FILE"
 CLAUDE_EOF
-ln -s "$BIN_DIR/codex" "$NO_CLAUDE_BIN_DIR/codex"
 chmod +x "$BIN_DIR/claude"
 
 cat > "$STATE_FILE" <<STATE_EOF
