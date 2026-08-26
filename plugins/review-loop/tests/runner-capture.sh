@@ -28,6 +28,8 @@ cat > "$BIN_DIR/codex" <<'CODEX_EOF'
 if [ -n "${FAKE_REVIEW_FILE:-}" ]; then
   printf 'VERDICT: FAIL\nprovider-created artifact\n' > "$FAKE_REVIEW_FILE"
   printf 'provider progress\n'
+elif [ "${FAKE_REVIEW_MODE:-}" = empty ]; then
+  exit 0
 elif [ "${FAKE_REVIEW_MODE:-}" = malformed ]; then
   printf 'review output without a verdict\n'
 elif [ "${FAKE_REVIEW_MODE:-}" = nonzero ]; then
@@ -143,6 +145,20 @@ if [ "$(cat "$REVIEW_FILE")" != "$expected_output" ]; then
   printf 'FAIL: runner did not capture output from a failed reviewer\n' >&2
   exit 1
 fi
+jq '.phase = "task" | .round = 5' "$STATE_FILE" > "$STATE_FILE.tmp"
+mv "$STATE_FILE.tmp" "$STATE_FILE"
+hook_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_REVIEW_MODE=empty "$HOOK" <<< '{}')
+if ! jq -e \
+  '.decision == "block" and (.reason | contains("did not produce a usable artifact"))' \
+  <<< "$hook_output" >/dev/null; then
+  printf 'FAIL: hook did not reject a missing review artifact: %s\n' "$hook_output" >&2
+  exit 1
+fi
+if ! jq -e '.phase == "addressing"' "$STATE_FILE" >/dev/null; then
+  printf 'FAIL: hook did not retain the addressing phase after artifact verification\n' >&2
+  exit 1
+fi
+
 
 for temporary_file in "$REVIEW_DIR"/review-*.md.stdout.*; do
   if [ -e "$temporary_file" ]; then

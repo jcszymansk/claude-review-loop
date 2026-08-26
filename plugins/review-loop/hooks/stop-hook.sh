@@ -99,6 +99,13 @@ parse_verdict() {
       ;;
   esac
 }
+review_artifact_is_usable() {
+  local review_file="$1"
+
+  [ -f "$review_file" ] && [ -s "$review_file" ] && [ -r "$review_file" ]
+}
+
+
 
 
 
@@ -509,10 +516,16 @@ RUNNER_EOF
     fi
 
     log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
-    if [ "$REVIEWER_EXIT" -eq 0 ]; then
-      REVIEW_STATUS="completed"
+    if review_artifact_is_usable "$REVIEW_FILE"; then
+      log "Review artifact ready (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
+      if [ "$REVIEWER_EXIT" -eq 0 ]; then
+        REVIEW_STATUS="completed"
+      else
+        REVIEW_STATUS="exited with status ${REVIEWER_EXIT}; rerun it if the review artifact is malformed"
+      fi
     else
-      REVIEW_STATUS="exited with status ${REVIEWER_EXIT}; rerun it if the review artifact is missing or malformed"
+      log "ERROR: ${REVIEWER} did not produce a usable review artifact (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
+      REVIEW_STATUS="did not produce a usable artifact; rerun it with the generated script"
     fi
     REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
 

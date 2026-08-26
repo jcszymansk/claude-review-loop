@@ -98,7 +98,7 @@ Only `PASS` means the changes were accepted.
 Add the review, correction, and re-review loop.
 
 - [x] Run the configured reviewer for the current round.
-- [ ] Verify that the reviewer produced a usable artifact.
+- [x] Verify that the reviewer produced a usable artifact.
 - [ ] Parse the verdict.
 - [ ] Stop immediately on `PASS`.
 - [ ] On `FAIL`, start a fresh Claude correction session.
