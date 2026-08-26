@@ -130,6 +130,17 @@ claude-review-loop/
 │   ├── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
 │   ├── cancel-review-loop.sh  # Stop active loop child processes
 │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
+├── prompts/
+│   ├── review-base.md              # Shared reviewer instructions
+│   ├── review-nextjs.md            # Conditional Next.js review instructions
+│   ├── review-ux.md                # Conditional browser UX review instructions
+│   ├── review-consolidation.md     # Finding consolidation instructions
+│   ├── correction-session.md        # Claude correction-session instructions
+│   ├── addressing-correction.md     # Correction handoff message
+│   ├── addressing-review.md         # Review handoff message
+│   ├── addressing-summary.md        # Incomplete summary message
+│   ├── addressing-verdict.md        # Malformed verdict message
+│   └── addressing-missing-review.md # Missing review message
 ├── AGENTS.md                  # Agent operating guidelines
 ├── CLAUDE.md                  # Symlink to AGENTS.md
 └── README.md

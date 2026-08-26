@@ -68,6 +68,7 @@ clear_child_pid() {
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
+PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
 STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
 case "$STOP_HOOK_SCRIPT" in
   /*) ;;
@@ -260,10 +261,46 @@ detect_browser_ui() {
     [ -d "public" ] || [ -f "index.html" ]
 }
 
-# ── Build the review prompt ────────────────────────────────────────────────
-build_review_prompt() {
-  local REVIEW_FILE="$1"
+# ── Prompt templates ───────────────────────────────────────────────────────
+replace_prompt_placeholder() {
+  local placeholder="$1"
+  local replacement="$2"
+  local prefix
+  local suffix
 
+  while [[ "$template" == *"$placeholder"* ]]; do
+    prefix="${template%%"$placeholder"*}"
+    suffix="${template#*"$placeholder"}"
+    template="${prefix}${replacement}${suffix}"
+  done
+}
+render_prompt_template() {
+  local template_file="$1"
+  local template
+
+  if [ ! -r "$template_file" ]; then
+    log "ERROR: prompt template missing or unreadable: $template_file"
+    return 1
+  fi
+  if ! template=$(cat "$template_file"); then
+    log "ERROR: failed to read prompt template: $template_file"
+    return 1
+  fi
+
+  replace_prompt_placeholder "__REVIEWER__" "$REVIEWER"
+  replace_prompt_placeholder "__ROUND__" "$ROUND"
+  replace_prompt_placeholder "__REVIEW_STATUS__" "$REVIEW_STATUS"
+  replace_prompt_placeholder "__CORRECTION_STATUS__" "$CORRECTION_STATUS"
+  replace_prompt_placeholder "__RUNNER_SCRIPT__" "$RUNNER_SCRIPT"
+  replace_prompt_placeholder "__REVIEW_FILE__" "$REVIEW_FILE"
+  replace_prompt_placeholder "__REVIEW_ID__" "$REVIEW_ID"
+  replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
+  replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
+  replace_prompt_placeholder "__TASK__" "$TASK"
+  printf '%s\n' "$template"
+}
+
+build_review_prompt() {
   local IS_NEXTJS=false
   local HAS_UI=false
   detect_nextjs && IS_NEXTJS=true
@@ -271,187 +308,14 @@ build_review_prompt() {
 
   log "Project detection: nextjs=$IS_NEXTJS, browser_ui=$HAS_UI"
 
-  # ── Preamble ──
-  cat << PREAMBLE_EOF
-You are orchestrating a thorough, independent code review of recent changes in this repository.
-
-Use multi-agent to run the following review agents IN PARALLEL. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
-
-IMPORTANT: Spawn one agent per review path below. Wait for all agents to finish. Then deduplicate overlapping findings and write the consolidated review to: ${REVIEW_FILE}
-The first line of the consolidated review file MUST be exactly one of these two lines:
-VERDICT: PASS
-VERDICT: FAIL
-
-
-PREAMBLE_EOF
-
-
-  # ── Agent 1: Diff Review ──
-  cat << 'DIFF_EOF'
----
-AGENT 1: Diff Review (focus on uncommitted and recently committed changes ONLY)
-
-Run `git diff` and `git diff --cached` to see all uncommitted changes. Also run `git log --oneline -5` and `git diff HEAD~5` for recently committed work. Focus your review EXCLUSIVELY on this changed code.
-
-Review criteria for changed code:
-
-Code Quality:
-- Is the changed code well-organized, modular, and readable?
-- Does it follow DRY principles — no copy-pasted blocks that should be abstracted?
-- Are names (variables, functions, files) clear and consistent with the codebase?
-- Are abstractions at the right level — not over-engineered, not under-abstracted?
-- Is there unnecessary complexity that could be simplified?
-
-Test Coverage:
-- Does every new function/endpoint/component have corresponding tests?
-- Are edge cases covered: empty inputs, nulls, boundary values, error paths?
-- Are tests isolated, deterministic, and fast?
-- Do tests verify behavior (not implementation details)?
-- For bug fixes: is there a regression test that would have caught the original bug?
-
-Security:
-- Input validation: are all user inputs validated and sanitized before use?
-- Authentication/authorization: are auth checks present on all protected routes/actions?
-- Injection: any risk of SQL injection, XSS, command injection, path traversal?
-- Secrets: are any credentials, API keys, or tokens hardcoded or logged?
-- OWASP Top 10: check for broken access control, cryptographic failures, insecure design, security misconfiguration, vulnerable dependencies, SSRF
-- Are error messages safe (no stack traces or internal details leaked to users)?
-
-For each issue: return file path, line number, severity (critical/high/medium/low), category, description, and suggested fix.
-
-DIFF_EOF
-
-  # ── Agent 2: Holistic Review ──
-  cat << 'HOLISTIC_EOF'
----
-AGENT 2: Holistic Review (evaluate overall project structure and agent readiness)
-
-Read the full project directory structure, key config files, README, and any AGENTS.md / CLAUDE.md files. This is NOT about individual line changes — it's about whether the project is well-structured for maintainability and agent-driven development.
-
-Review criteria for the whole project:
-
-Code Organization & Modularity:
-- Is the project structure logical and navigable? Can a new developer (or agent) find things?
-- Are concerns properly separated (data access, business logic, presentation, config)?
-- Are there god files/functions that do too much and should be split?
-- Is shared code properly extracted into reusable modules?
-- Are import paths clean (absolute imports, no deep relative paths)?
-
-Documentation & Agent Harness:
-- Does every major directory have an AGENTS.md with operating guidelines for agents?
-- Is there a CLAUDE.md symlinked to each AGENTS.md for Claude Code compatibility?
-- Do AGENTS.md files document: conventions, file purposes, testing patterns, common pitfalls?
-- Is there telemetry/observability instrumentation (logging, metrics, tracing)?
-- Is there a type system in use (TypeScript, Python type hints, etc.) with proper coverage?
-- Are there proper constraints and guardrails so agents working on the code are set up for success?
-- Are environment variables documented and validated at startup?
-- Are there clear boundaries between server-only and client-safe code?
-
-Architecture:
-- Is the dependency graph clean (no circular dependencies)?
-- Are external integrations properly abstracted behind interfaces?
-- Is configuration centralized rather than scattered?
-- Is error handling consistent across the codebase?
-
-For each issue: return file path (or directory), severity (critical/high/medium/low), category, description, and suggested fix.
-
-HOLISTIC_EOF
-
-  # ── Agent 3: Next.js Best Practices (conditional) ──
+  render_prompt_template "$PROMPTS_DIR/review-base.md" || return 1
   if [ "$IS_NEXTJS" = "true" ]; then
-    cat << 'NEXTJS_EOF'
----
-AGENT 3: Next.js & React Best Practices Review
-
-This is a Next.js project. Review the codebase against these specific patterns:
-
-App Router & Server Components:
-- Are Server Components used by default? Is 'use client' only added when interactivity is needed?
-- Is data fetched in Server Components, not Client Components?
-- Are Suspense boundaries used for streaming slow data sources?
-- Are file conventions correct: layout.tsx, page.tsx, loading.tsx, error.tsx, not-found.tsx?
-- Are searchParams and params handled as Promises (await searchParams / await params)?
-- Is generateStaticParams() used to pre-render known dynamic routes?
-- Is generateMetadata() used for SEO-critical pages?
-- Is notFound() called for missing resources instead of returning null?
-
-Data Fetching & Caching:
-- Are parallel data fetches used (Promise.all) instead of sequential waterfalls?
-- Is cache strategy appropriate: no-store for fresh data, force-cache for static, revalidate for ISR?
-- Are cache tags used for fine-grained invalidation after mutations?
-- Is React.cache() used to deduplicate queries within a single request?
-
-Server Actions & Mutations:
-- Are Server Actions validated and auth-checked as if they were public API endpoints?
-- Is revalidateTag/revalidatePath called after mutations to invalidate cache?
-- Is after() used for non-blocking post-response work (logging, analytics)?
-
-Performance & Bundle Size:
-- No barrel file imports — import directly from source paths?
-- Is next/dynamic with { ssr: false } used for heavy client-only components?
-- Are non-critical libraries (analytics, error tracking) deferred until after hydration?
-- Are heavy bundles preloaded on user intent (hover/focus)?
-- Is data minimized across the RSC boundary (only pass fields client needs)?
-
-React Performance:
-- Is derived state calculated during render, not in effects?
-- Are expensive computations memoized appropriately?
-- Is useTransition used for non-urgent updates?
-- No unnecessary useEffect for things that belong in event handlers?
-- Are stable callback references used (functional setState, refs) to avoid re-render churn?
-- Is content-visibility: auto used for long lists?
-- Are inline scripts used to set client data before hydration (prevent FOUC)?
-
-For each issue: return file path, line number, severity (critical/high/medium/low), category, description, and suggested fix.
-
-NEXTJS_EOF
+    render_prompt_template "$PROMPTS_DIR/review-nextjs.md" || return 1
   fi
-
-  # ── Agent 4: UX & Browser Testing (conditional) ──
   if [ "$HAS_UI" = "true" ]; then
-    cat << 'UX_EOF'
----
-AGENT (UX): Browser-Based UX Review (SKIP if you cannot access a running dev server)
-
-If the project has a running dev server, use agent-browser to test the UI.
-Install agent-browser if needed: npm install -g agent-browser (or: brew install agent-browser)
-
-Testing checklist:
-- Navigate to all major routes/pages
-- Test key user workflows end-to-end (signup, login, CRUD operations, etc.)
-- Take screenshots at desktop (1280x720) and mobile (375x812) viewports
-- Check for: broken layouts, missing error states, loading states, empty states
-- Verify accessibility: keyboard navigation, focus indicators, color contrast
-- Check responsive design at multiple breakpoints
-- Verify forms have proper validation feedback
-- Check that error messages are user-friendly
-
-If the dev server is not running or you cannot access it, skip this agent and note that UX testing was not performed.
-
-For each issue: return screenshot description, severity, category, description, and suggested fix.
-
-UX_EOF
+    render_prompt_template "$PROMPTS_DIR/review-ux.md" || return 1
   fi
-
-  # ── Consolidation instructions ──
-  cat << CONSOLIDATION_EOF
----
-CONSOLIDATION INSTRUCTIONS (after all agents complete):
-
-1. Collect all findings from all agents
-2. Deduplicate: if multiple agents flagged the same issue, keep the most detailed version
-3. Organize all findings by severity (critical first, then high, medium, low)
-4. For each finding, include:
-   - File path and line number (or directory for structural issues)
-   - Severity: critical / high / medium / low
-   - Category: which review path found it (Diff, Holistic, Next.js, UX)
-   - Description: clear explanation
-   - Suggested fix: concrete, actionable recommendation
-5. End with a summary: total issues, breakdown by severity, agents that ran, overall assessment
-6. Write the COMPLETE consolidated review to: ${REVIEW_FILE}
-
-IMPORTANT: You MUST create the file ${REVIEW_FILE} with the full review.
-CONSOLIDATION_EOF
+  render_prompt_template "$PROMPTS_DIR/review-consolidation.md" || return 1
 }
 
 # ── Rewrite JSON state to update phase (atomic) ───────────────────────────
@@ -512,33 +376,10 @@ start_correction_session() {
   local tty_name
   local tty_device
 
-  correction_prompt=$(cat << CORRECTION_EOF
-You are a fresh Claude correction session for review loop ${REVIEW_ID}.
-
-Original task:
-${TASK}
-
-Before changing any code, read the full round history in ${REVIEW_DIR}.
-Read every review-*.md and summary-*.md file in that directory, including
-${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
-
-Read the review at ${REVIEW_FILE}. For each finding, verify it against the
-codebase, implement the fixes you agree with, and record every skipped finding
-with its reason.
-
-Write ${SUMMARY_FILE} before stopping. It must be non-empty and contain these
-Markdown sections:
-## Fixes
-## Skipped findings
-## Quality gates
-
-Record each fix, skipped finding, and verification command with its result
-(PASS, FAIL, or NOT RUN). Do not modify the review file or run the reviewer.
-Stop after the correction summary is written so the original session can run
-the reviewer again.
-
-CORRECTION_EOF
-)
+  if ! correction_prompt=$(render_prompt_template "$PROMPTS_DIR/correction-session.md"); then
+    log "ERROR: failed to render correction prompt"
+    return 1
+  fi
 
   tty_name=$(ps -o tty= -p "$$" 2>/dev/null)
   tty_name="${tty_name//[[:space:]]/}"
@@ -619,7 +460,12 @@ Then run /review-loop again."
     fi
 
 
-    REVIEW_PROMPT=$(build_review_prompt "$REVIEW_FILE")
+    if ! REVIEW_PROMPT=$(build_review_prompt); then
+      log "ERROR: failed to render review prompt"
+      cleanup_runtime_files
+      printf '{"decision":"approve"}\n'
+      exit 0
+    fi
     printf '%s' "$REVIEW_PROMPT" > "$PROMPT_FILE"
 
     cat > "$RUNNER_SCRIPT" << RUNNER_EOF
@@ -741,49 +587,19 @@ RUNNER_EOF
     fi
 
     if [ -n "$CORRECTION_STATUS" ]; then
-      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}. A fresh interactive Claude correction session ${CORRECTION_STATUS}.
-
-Before changing any code, read the full round history in ${REVIEW_DIR}.
-Read every review-*.md and summary-*.md file in that directory, including
-${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
-
-Read ${REVIEW_FILE}, verify its findings, address the agreed items, then write
-${SUMMARY_FILE} with these Markdown sections before running the reviewer:
-## Fixes
-## Skipped findings
-## Quality gates
-Record each fix, skipped finding, and verification command with its result
-(PASS, FAIL, or NOT RUN).
-
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`"
+      if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-correction.md"); then
+        log "ERROR: failed to render correction handoff prompt"
+        cleanup_runtime_files
+        printf '{"decision":"approve"}\n'
+        exit 0
+      fi
     else
-      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
-
-Before changing any code, read the full round history in ${REVIEW_DIR}.
-Read every review-*.md and summary-*.md file in that directory, including
-${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
-
-Read ${REVIEW_FILE} and address the findings:
-1. Read the review carefully
-2. For each item, independently decide if you agree
-3. For items you AGREE with: implement the fix
-4. For items you DISAGREE with: briefly note why you are skipping them
-5. Focus on critical and high severity items first
-6. Write a non-empty summary to ${SUMMARY_FILE} with these Markdown sections:
-   ## Fixes
-   ## Skipped findings
-   ## Quality gates
-   Record each fix, skipped finding, and verification command with its result
-   (PASS, FAIL, or NOT RUN)
-
-If ${REVIEW_FILE} is missing or malformed, rerun the reviewer with a 600000ms timeout:
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`
-
-Use your own judgment. Do not blindly accept every suggestion."
+      if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-review.md"); then
+        log "ERROR: failed to render review handoff prompt"
+        cleanup_runtime_files
+        printf '{"decision":"approve"}\n'
+        exit 0
+      fi
     fi
     SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback or continue to the next round"
 
@@ -796,15 +612,12 @@ Use your own judgment. Do not blindly accept every suggestion."
     # ── Phase 2: verify review verdict before allowing exit ───────────────
     if [ -f "$REVIEW_FILE" ] && ! correction_summary_is_usable "$SUMMARY_FILE"; then
       log "Correction summary missing or incomplete (review_id=$REVIEW_ID, round=$ROUND, file=$SUMMARY_FILE)"
-      REASON="The review verdict cannot be accepted because ${SUMMARY_FILE} is missing or incomplete.
-
-Write a non-empty correction summary with these Markdown sections:
-## Fixes
-## Skipped findings
-## Quality gates
-
-Record each fix, skipped finding, and verification command with its result
-(PASS, FAIL, or NOT RUN), then stop again."
+      if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-summary.md"); then
+        log "ERROR: failed to render correction summary prompt"
+        cleanup_runtime_files
+        printf '{"decision":"approve"}\n'
+        exit 0
+      fi
       SYS_MSG="Review Loop [${REVIEW_ID}] — Correction summary required"
       jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
         '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -839,11 +652,12 @@ Record each fix, skipped finding, and verification command with its result
         fi
       else
         log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"
-        REASON="The review verdict is FAIL because it is absent or malformed. Treat it as FAIL, correct the review output, then run the reviewer again:
-
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`"
+        if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-verdict.md"); then
+          log "ERROR: failed to render verdict prompt"
+          cleanup_runtime_files
+          printf '{"decision":"approve"}\n'
+          exit 0
+        fi
         SYS_MSG="Review Loop [${REVIEW_ID}] — Verdict: FAIL"
         jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
           '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -866,13 +680,12 @@ bash ${RUNNER_SCRIPT}
       else
         echo "$RETRY_COUNT" > "$RETRY_FILE"
         log "Review file not found ($REVIEW_FILE), prompting Claude to run $REVIEWER"
-        REASON="The ${REVIEWER} review has not been completed yet. Please run the review script (use a 600000ms timeout since reviews can take several minutes):
-
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`
-
-Then read ${REVIEW_FILE} and address the findings."
+        if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-missing-review.md"); then
+          log "ERROR: failed to render missing review prompt"
+          cleanup_runtime_files
+          printf '{"decision":"approve"}\n'
+          exit 0
+        fi
         SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review not yet complete"
         jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
           '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \

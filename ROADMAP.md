@@ -115,7 +115,7 @@ The initial implementation should remain interactive. Fresh headless Claude sess
 
 Combine the useful prompt changes from the forks without forcing a pull-request workflow.
 
-- [ ] Move prompt templates into separate Markdown files.
+- [x] Move prompt templates into separate Markdown files.
 - [ ] Include the original task in every review.
 - [ ] Include previous reviews and correction summaries in later rounds.
 - [ ] Review the current branch diff by default.
