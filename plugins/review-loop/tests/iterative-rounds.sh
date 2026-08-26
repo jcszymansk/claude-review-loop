@@ -91,6 +91,7 @@ mkdir -p "$PASS_HOME/.codex"
 printf '[features]\nmulti_agent = true\n' > "$PASS_HOME/.codex/config.toml"
 write_state "$PASS_PROJECT" "$PASS_REVIEW_ID" 3
 
+
 output=$(run_hook "$PASS_PROJECT" "$PASS_HOME" "$PASS_COUNT")
 jq -e '.decision == "block"' <<< "$output" >/dev/null
 jq -e '.phase == "addressing" and .round == 1' \
@@ -102,6 +103,10 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null
 jq -e '.phase == "addressing" and .round == 2' \
   "$PASS_PROJECT/.claude/review-loop.local.json" >/dev/null
 write_summary "$PASS_PROJECT" "$PASS_REVIEW_ID" 2
+grep -Fq 'needs correction' \
+  "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
+grep -Fq 'addressed findings for round 1' \
+  "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
 
 output=$(run_hook "$PASS_PROJECT" "$PASS_HOME" "$PASS_COUNT")
 jq -e '.decision == "approve"' <<< "$output" >/dev/null

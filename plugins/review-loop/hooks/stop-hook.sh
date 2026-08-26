@@ -268,6 +268,52 @@ replace_prompt_placeholder() {
 
   template="${template//"$placeholder"/"$replacement"}"
 }
+PRIOR_ROUND_HISTORY=""
+build_prior_round_history() {
+  local history=""
+  local history_round
+  local history_file
+  local history_name
+  local history_content
+
+  if [ "$ROUND" -le 1 ]; then
+    printf 'No previous review rounds.\n'
+    return 0
+  fi
+
+  if [ -r "$REVIEW_DIR/summary-0.md" ] &&
+    history_content=$(cat "$REVIEW_DIR/summary-0.md"); then
+    history="### Initial implementation summary (summary-0.md)
+
+${history_content}"
+  fi
+
+  for ((history_round = 1; history_round < ROUND; history_round++)); do
+    for history_file in \
+      "$REVIEW_DIR/review-${history_round}.md" \
+      "$REVIEW_DIR/summary-${history_round}.md"; do
+      if [ -r "$history_file" ] &&
+        history_content=$(cat "$history_file"); then
+        history_name="${history_file##*/}"
+        if [ -n "$history" ]; then
+          history="${history}
+
+"
+        fi
+        history="${history}### Round ${history_round} ${history_name}
+
+${history_content}"
+      fi
+    done
+  done
+
+  if [ -n "$history" ]; then
+    printf '%s\n' "$history"
+  else
+    printf 'No previous review history is available.\n'
+  fi
+}
+
 render_prompt_template() {
   local template_file="$1"
   local template
@@ -291,6 +337,7 @@ render_prompt_template() {
   replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
   replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
   replace_prompt_placeholder "__TASK__" "$TASK"
+  replace_prompt_placeholder "__PRIOR_ROUND_HISTORY__" "$PRIOR_ROUND_HISTORY"
   printf '%s\n' "$template"
 }
 
@@ -302,6 +349,9 @@ build_review_prompt() {
 
   log "Project detection: nextjs=$IS_NEXTJS, browser_ui=$HAS_UI"
 
+  if ! PRIOR_ROUND_HISTORY=$(build_prior_round_history); then
+    return 1
+  fi
   render_prompt_template "$PROMPTS_DIR/review-base.md" || return 1
   if [ "$IS_NEXTJS" = "true" ]; then
     render_prompt_template "$PROMPTS_DIR/review-nextjs.md" || return 1
@@ -311,6 +361,7 @@ build_review_prompt() {
   fi
   render_prompt_template "$PROMPTS_DIR/review-consolidation.md" || return 1
 }
+
 
 # ── Rewrite JSON state to update phase (atomic) ───────────────────────────
 transition_phase() {
