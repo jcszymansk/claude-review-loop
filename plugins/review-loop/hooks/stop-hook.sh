@@ -109,7 +109,8 @@ if ! echo "$REVIEW_ID" | grep -qE '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'; then
 
 fi
 REVIEW_DIR="reviews/${REVIEW_ID}"
-REVIEW_FILE="${REVIEW_DIR}/review.md"
+REVIEW_FILE="${REVIEW_DIR}/review-${ROUND}.md"
+SUMMARY_FILE="${REVIEW_DIR}/summary-${ROUND}.md"
 
 case "$REVIEWER" in
   codex)
@@ -155,7 +156,7 @@ detect_browser_ui() {
     [ -d "public" ] || [ -f "index.html" ]
 }
 
-# ── Build the multi-agent review prompt ───────────────────────────────────
+# ── Build the review prompt ────────────────────────────────────────────────
 build_review_prompt() {
   local REVIEW_FILE="$1"
 
@@ -175,6 +176,7 @@ Use multi-agent to run the following review agents IN PARALLEL. Each agent shoul
 IMPORTANT: Spawn one agent per review path below. Wait for all agents to finish. Then deduplicate overlapping findings and write the consolidated review to: ${REVIEW_FILE}
 
 PREAMBLE_EOF
+
 
   # ── Agent 1: Diff Review ──
   cat << 'DIFF_EOF'
@@ -381,6 +383,7 @@ case "$PHASE" in
       exit 0
     fi
 
+
     if ! command -v "$REVIEWER_CLI" &> /dev/null; then
       log "ERROR: $REVIEWER_CLI not found on PATH"
       rm -f "$STATE_FILE"
@@ -414,8 +417,8 @@ Then run /review-loop again."
       fi
     fi
 
-    REVIEW_PROMPT=$(build_review_prompt "$REVIEW_FILE")
 
+    REVIEW_PROMPT=$(build_review_prompt "$REVIEW_FILE")
     printf '%s' "$REVIEW_PROMPT" > "$PROMPT_FILE"
 
     cat > "$RUNNER_SCRIPT" << RUNNER_EOF
@@ -471,7 +474,8 @@ After the review completes, read ${REVIEW_FILE} and address the findings:
 3. For items you AGREE with: implement the fix
 4. For items you DISAGREE with: briefly note why you are skipping them
 5. Focus on critical and high severity items first
-6. When done addressing all relevant items, you may stop
+6. Write a summary of the fixes, skipped findings, and verification results to ${SUMMARY_FILE}
+7. When done addressing all relevant items, you may stop
 
 Use your own judgment. Do not blindly accept every suggestion."
 

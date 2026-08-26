@@ -103,7 +103,7 @@ if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FIL
   exit 1
 fi
 
-: > "$REVIEW_DIR/review.md"
+: > "$REVIEW_DIR/review-1.md"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
   printf 'FAIL: addressing path did not approve with a review: %s\n' "$output" >&2

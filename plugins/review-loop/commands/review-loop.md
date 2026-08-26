@@ -76,18 +76,23 @@ jq -n \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"
-echo "Review artifacts: ${LOOP_DIR}"
+echo "Review artifacts: ${LOOP_DIR}/summary-0.md and ${LOOP_DIR}/review-1.md"
 ```
 
 After setup completes successfully, proceed to implement the task described in the arguments. Work thoroughly and completely — write clean, well-structured, well-tested code.
 
-When you believe the task is fully done, stop. The review loop stop hook will automatically:
-1. Prepare a reviewer runner script and prompt file
-2. Block Claude's exit with instructions to run the review
+Before your first stop, read `.claude/review-loop.local.json` to get the review ID and write an implementation summary to `reviews/<review_id>/summary-0.md`. Include changed files, key decisions, and verification results.
 
-You will then run the generated reviewer script to execute the review (output streams to the user for visibility). After the reviewer finishes, read the review file and address the findings.
+After the stop hook prepares the review:
+1. Run the generated reviewer script with a 600000ms timeout
+2. Read `reviews/<review_id>/review-1.md` and address the findings
+3. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
+4. Stop after the correction summary is complete
+
+The loop directory is kept after cleanup. Later rounds use the same directory with `review-<round>.md` and `summary-<round>.md`.
 
 RULES:
 - Complete the task to the best of your ability before stopping
 - Do not stop prematurely or skip parts of the task
+- Always write the required summary before stopping
 - When blocked by the hook, run the generated reviewer script and address the review

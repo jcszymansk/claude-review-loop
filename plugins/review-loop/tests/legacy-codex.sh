@@ -60,9 +60,8 @@ if [ ! -d "$LOOP_DIR" ]; then
 fi
 
 grep -q "REVIEWER='codex'" "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
-grep -q 'reviews/20260826-113800-abcdef/review.md' \
+grep -q 'reviews/20260826-113800-abcdef/review-1.md' \
   "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
-
 jq -e '
   .phase == "addressing"
   and (.reviewer // "codex") == "codex"
@@ -71,11 +70,36 @@ jq -e '
   and .max_rounds == 3
 ' "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
 
-(
+jq '.phase = "task" | .round = 2' \
+  "$PROJECT_DIR/.claude/review-loop.local.json" > "$PROJECT_DIR/.claude/review-loop.local.json.tmp"
+mv "$PROJECT_DIR/.claude/review-loop.local.json.tmp" "$PROJECT_DIR/.claude/review-loop.local.json"
+OUTPUT=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
+case "$OUTPUT" in
+  *'"decision": "block"'*) ;;
+  *)
+    printf 'FAIL: round 2 state was not blocked for Codex review: %s\n' "$OUTPUT" >&2
+    exit 1
+    ;;
+esac
+grep -q 'reviews/20260826-113800-abcdef/review-2.md' \
+  "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+jq -e '.phase == "addressing" and .round == 2' \
+  "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
+
+
+
+SETUP_OUTPUT=$(
   cd "$SETUP_PROJECT_DIR"
   env HOME="$SETUP_HOME_DIR" XDG_CONFIG_HOME="$XDG_DIR" PATH="$BIN_DIR:$PATH" \
-    "$SETUP" "Preserve the existing Codex workflow" >/dev/null
+    "$SETUP" "Preserve the existing Codex workflow"
 )
+case "$SETUP_OUTPUT" in
+  *summary-0.md*review-1.md*) ;;
+  *)
+    printf 'FAIL: setup did not report numbered round artifacts: %s\n' "$SETUP_OUTPUT" >&2
+    exit 1
+    ;;
+esac
 grep -q '^multi_agent = true$' "$SETUP_HOME_DIR/.codex/config.toml"
 jq -e '
   .reviewer == "codex"

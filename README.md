@@ -6,8 +6,8 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
-1. **Task phase**: You describe a task, Claude implements it
-2. **Review phase**: When Claude finishes, the stop hook prepares a runner for the selected reviewer and blocks exit. Claude then runs the reviewer directly (with output streaming to the user) and addresses the review feedback.
+1. **Task phase**: You describe a task, Claude implements it, and writes `summary-0.md`
+2. **Review phase**: The stop hook prepares a runner for the selected reviewer and blocks exit. Claude runs the reviewer directly, reads `review-1.md`, addresses the findings, and writes `summary-1.md`.
 
 
 The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
@@ -27,7 +27,7 @@ The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Code
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
-After the reviewer finishes, it writes a single consolidated review to `reviews/<id>/review.md`.
+Each loop stores its conversation artifacts together under `reviews/<id>/`: `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
 
 
 ## Requirements
@@ -81,12 +81,12 @@ claude plugin update review-loop@hamel-review
 /review-loop Add user authentication with JWT tokens and test coverage
 ```
 
-Claude will implement the task. When it finishes, the stop hook:
+Claude will implement the task. Before the first stop, write an implementation summary to `reviews/<id>/summary-0.md`. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
 2. Blocks Claude's exit with instructions to run the review
 3. Claude runs the generated reviewer script and sees its output
-4. The reviewer writes findings to `reviews/<id>/review.md`
-5. Claude reads the review, addresses items it agrees with, then stops
+4. The reviewer writes findings to `reviews/<id>/review-1.md`
+5. Claude reads the review, addresses the findings, writes `reviews/<id>/summary-1.md`, then stops
 
 
 ### Cancel a review loop
@@ -100,10 +100,10 @@ Claude will implement the task. When it finishes, the stop hook:
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
-2. If in `task` phase: writes a reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
-3. If in `addressing` phase: allows exit and cleans up
+2. If in `task` phase: writes a numbered reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
+3. If in `addressing` phase: verifies the current numbered review, then allows exit and cleans up
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/`, and its review is written to `reviews/<id>/review.md`.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/` containing `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs.
 
 ## File structure
 
