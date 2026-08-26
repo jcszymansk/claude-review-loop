@@ -55,21 +55,25 @@ cat > "$STATE_FILE" <<STATE_EOF
 }
 STATE_EOF
 
-hook_output=$(
-  cd "$PROJECT_DIR"
-  env \
-    HOME="$HOME_DIR" \
-    PATH="$BIN_DIR:$PATH" \
-    FAKE_REVIEW_FILE="$REVIEW_FILE" \
-    FAKE_CLAUDE_ARGS_FILE="$CLAUDE_ARGS_FILE" \
-    FAKE_CLAUDE_PROMPT_FILE="$CLAUDE_PROMPT_FILE" \
-    FAKE_CLAUDE_ENV_FILE="$CLAUDE_ENV_FILE" \
-    FAKE_CLAUDECODE_FILE="$CLAUDECODE_FILE" \
-    CLAUDECODE=parent-marker \
-    "$HOOK" <<< '{}'
-)
+PTY_HOOK="$TMP_DIR/pty-hook.sh"
+cat > "$PTY_HOOK" <<HOOK_EOF
+#!/usr/bin/env bash
+cd "$PROJECT_DIR"
+exec env \
+  HOME="$HOME_DIR" \
+  PATH="$BIN_DIR:$PATH" \
+  FAKE_REVIEW_FILE="$REVIEW_FILE" \
+  FAKE_CLAUDE_ARGS_FILE="$CLAUDE_ARGS_FILE" \
+  FAKE_CLAUDE_PROMPT_FILE="$CLAUDE_PROMPT_FILE" \
+  FAKE_CLAUDE_ENV_FILE="$CLAUDE_ENV_FILE" \
+  FAKE_CLAUDECODE_FILE="$CLAUDECODE_FILE" \
+  CLAUDECODE=parent-marker \
+  "$HOOK"
+HOOK_EOF
+chmod +x "$PTY_HOOK"
 
-jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
+script -qefc "$PTY_HOOK" /dev/null <<< '{}' >/dev/null
+
 jq -e '.phase == "addressing" and .round == 1' "$STATE_FILE" >/dev/null
 
 if [ ! -s "$CLAUDE_ARGS_FILE" ] || [ ! -s "$CLAUDE_PROMPT_FILE" ]; then

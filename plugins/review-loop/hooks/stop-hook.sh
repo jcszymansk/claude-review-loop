@@ -418,6 +418,8 @@ transition_phase() {
 start_correction_session() {
   local correction_prompt
   local correction_status
+  local tty_name
+  local tty_device
 
   correction_prompt=$(cat << CORRECTION_EOF
 You are a fresh Claude correction session for review loop ${REVIEW_ID}.
@@ -434,13 +436,22 @@ summary is written so the original session can run the reviewer again.
 CORRECTION_EOF
 )
 
+  tty_name=$(ps -o tty= -p "$$" 2>/dev/null)
+  tty_name="${tty_name//[[:space:]]/}"
+  tty_device=""
+  case "$tty_name" in
+    console|pts/*|tty[sy]*)
+      tty_device="/dev/$tty_name"
+      ;;
+  esac
+
   log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
-  if [ -t 0 ] && [ -t 1 ]; then
-    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt"
+  if [ -n "$tty_device" ] && [ -r "$tty_device" ] && [ -w "$tty_device" ]; then
+    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1
     correction_status=$?
   else
-    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" </dev/null >>"$LOG_FILE" 2>&1
-    correction_status=$?
+    log "ERROR: fresh interactive Claude correction session unavailable: Stop hook has no terminal"
+    correction_status=1
   fi
   if [ "$correction_status" -eq 0 ]; then
     log "Fresh interactive Claude correction session finished (review_id=$REVIEW_ID, round=$ROUND)"
