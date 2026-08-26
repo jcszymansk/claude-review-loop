@@ -427,6 +427,10 @@ You are a fresh Claude correction session for review loop ${REVIEW_ID}.
 Original task:
 ${TASK}
 
+Before changing any code, read the full round history in ${REVIEW_DIR},
+including ${REVIEW_DIR}/summary-0.md, the current review, and every review
+and correction summary artifact from earlier rounds.
+
 Read the review at ${REVIEW_FILE}. For each finding, verify it against the
 codebase, implement the fixes you agree with, and note any skipped findings.
 Write the correction summary to ${SUMMARY_FILE}.

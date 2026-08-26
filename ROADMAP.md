@@ -102,7 +102,7 @@ Add the review, correction, and re-review loop.
 - [x] Parse the verdict.
 - [x] Stop immediately on `PASS`.
 - [x] On `FAIL`, start a fresh Claude correction session.
-- [ ] Ask Claude to read the full round history before changing code.
+- [x] Ask Claude to read the full round history before changing code.
 - [ ] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [ ] Continue until `PASS` or the configured maximum round count.
 - [ ] Make the round limit configurable, with a bounded default.

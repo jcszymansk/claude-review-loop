@@ -105,6 +105,20 @@ case "$claude_prompt" in
     ;;
 esac
 case "$claude_prompt" in
+  *"full round history"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted full round history instruction\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"reviews/$REVIEW_ID/summary-0.md"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted initial task summary path\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
   *"reviews/$REVIEW_ID/summary-1.md"*) ;;
   *)
     printf 'FAIL: correction prompt omitted summary path\n' >&2
