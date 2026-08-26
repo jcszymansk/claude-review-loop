@@ -88,8 +88,12 @@ Before your first stop, read `.claude/review-loop.local.json` to get the review 
 After the Stop hook runs the review:
 1. Read `reviews/<review_id>/review-1.md` and address the findings
 2. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-1.md`
-3. If the first line is `VERDICT: FAIL`, implement any remaining agreed fixes and note skipped findings
-4. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
+3. If the first line is `VERDICT: FAIL`, implement any remaining agreed fixes and record skipped findings with reasons
+4. Write a non-empty `reviews/<review_id>/summary-<round>.md` with these sections:
+   - `## Fixes`
+   - `## Skipped findings`
+   - `## Quality gates`
+   Record each fix, skipped finding, and verification command with its result (`PASS`, `FAIL`, or `NOT RUN`)
 5. Rerun the generated reviewer script after changing the code. If the artifact or verdict is missing or malformed, rerun the script before addressing the findings
 6. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete
 

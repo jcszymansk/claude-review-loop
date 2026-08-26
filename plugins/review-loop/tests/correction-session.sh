@@ -10,6 +10,7 @@ BIN_DIR="$TMP_DIR/bin"
 REVIEW_ID="20260826-123456-abcdef"
 STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.json"
 REVIEW_FILE="$PROJECT_DIR/reviews/$REVIEW_ID/review-1.md"
+SUMMARY_FILE="$PROJECT_DIR/reviews/$REVIEW_ID/summary-1.md"
 CLAUDE_ARGS_FILE="$TMP_DIR/claude-args"
 CLAUDE_PROMPT_FILE="$TMP_DIR/claude-prompt"
 CLAUDE_ENV_FILE="$TMP_DIR/claude-env"
@@ -49,6 +50,16 @@ printf '%s' "$*" > "$FAKE_CLAUDE_ARGS_FILE"
 printf '%s' "${!#}" > "$FAKE_CLAUDE_PROMPT_FILE"
 printf '%s' "${REVIEW_LOOP_CORRECTION:-}" > "$FAKE_CLAUDE_ENV_FILE"
 printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_FILE"
+cat > "$FAKE_CLAUDE_SUMMARY_FILE" <<'SUMMARY_EOF'
+## Fixes
+- fixed the failing behavior
+
+## Skipped findings
+- None
+
+## Quality gates
+- shell test: PASS
+SUMMARY_EOF
 CLAUDE_EOF
 chmod +x "$BIN_DIR/claude"
 
@@ -77,6 +88,7 @@ exec env \
   FAKE_CLAUDE_PROMPT_FILE="$CLAUDE_PROMPT_FILE" \
   FAKE_CLAUDE_ENV_FILE="$CLAUDE_ENV_FILE" \
   FAKE_CLAUDECODE_FILE="$CLAUDECODE_FILE" \
+  FAKE_CLAUDE_SUMMARY_FILE="$SUMMARY_FILE" \
   CLAUDECODE=parent-marker \
   "$HOOK"
 HOOK_EOF
@@ -150,6 +162,27 @@ case "$claude_prompt" in
     ;;
 esac
 case "$claude_prompt" in
+  *"## Fixes"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted fixes section\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"## Skipped findings"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted skipped findings section\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"## Quality gates"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted quality gates section\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
   *"fix the failing behavior"*) ;;
   *)
     printf 'FAIL: correction prompt omitted task context\n' >&2
@@ -188,6 +221,27 @@ if [ ! -f "$STATE_FILE" ]; then
   printf 'FAIL: correction-session guard removed active state\n' >&2
   exit 1
 fi
+for section in "## Fixes" "## Skipped findings" "## Quality gates"; do
+  if ! grep -Fxq "$section" "$SUMMARY_FILE"; then
+    printf 'FAIL: correction session did not write %s\n' "$section" >&2
+    exit 1
+  fi
+done
+
+printf 'VERDICT: PASS\nno remaining findings\n' > "$REVIEW_FILE"
+pass_output=$(
+  cd "$PROJECT_DIR"
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$BIN_DIR:$PATH" \
+    "$HOOK" <<< '{}'
+)
+jq -e '.decision == "approve"' <<< "$pass_output" >/dev/null
+if [ -f "$STATE_FILE" ]; then
+  printf 'FAIL: complete correction summary did not allow exit\n' >&2
+  exit 1
+fi
+
 
 printf '# Review Loop Task Context\n\nfallback task\n' > "$FALLBACK_PROJECT_DIR/reviews/$FALLBACK_REVIEW_ID/summary-0.md"
 cat > "$FALLBACK_STATE_FILE" <<STATE_EOF

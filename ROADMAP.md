@@ -103,7 +103,7 @@ Add the review, correction, and re-review loop.
 - [x] Stop immediately on `PASS`.
 - [x] On `FAIL`, start a fresh Claude correction session.
 - [x] Ask Claude to read the full round history before changing code.
-- [ ] Require Claude to record fixes, skipped findings, and quality-gate results.
+- [x] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [ ] Continue until `PASS` or the configured maximum round count.
 - [ ] Make the round limit configurable, with a bounded default.
 - [ ] Support cancellation that stops child processes without deleting review history.

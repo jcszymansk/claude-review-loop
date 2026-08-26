@@ -88,7 +88,7 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 3. If the verdict is `VERDICT: FAIL`, starts a fresh interactive Claude correction session
 4. Blocks the original Claude session so it can inspect the correction and rerun the reviewer
 5. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
-6. A `VERDICT: FAIL`, missing verdict, or malformed verdict keeps the loop blocked; only `VERDICT: PASS` allows exit after Claude writes `summary-1.md`.
+6. A `VERDICT: FAIL`, missing verdict, or malformed verdict keeps the loop blocked. A `VERDICT: PASS` allows exit only after Claude writes a non-empty `summary-1.md` containing `## Fixes`, `## Skipped findings`, and `## Quality gates`, with verification results marked `PASS`, `FAIL`, or `NOT RUN`.
 
 
 ### Cancel a review loop
@@ -103,7 +103,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a numbered reviewer runner and prompt file, runs the configured reviewer for the current round, and transitions to `addressing`
 3. If the review verdict is `FAIL`, the hook starts one fresh interactive Claude correction session with the review context
-4. The hook blocks the original session. It verifies the current numbered review has a valid `VERDICT: PASS`; a `FAIL`, missing verdict, or malformed verdict keeps the loop blocked until the reviewer is run again
+4. The hook blocks the original Claude session. It verifies the current numbered review has a valid `VERDICT: PASS` and a complete correction summary; a `FAIL`, missing verdict, malformed verdict, or incomplete summary keeps the loop blocked until corrected.
 
 The hook removes runtime state and generated runner files only. It never removes `reviews/<id>/`, so summaries and review output remain available after cleanup. `/cancel-review` follows the same rule; future round-limit termination must preserve the directory as well.
 

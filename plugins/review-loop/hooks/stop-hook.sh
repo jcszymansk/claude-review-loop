@@ -110,6 +110,47 @@ review_artifact_is_usable() {
 
   [ -f "$review_file" ] && [ -s "$review_file" ] && [ -r "$review_file" ]
 }
+summary_section_has_content() {
+  local summary_file="$1"
+  local section="$2"
+
+  awk -v section="$section" '
+    BEGIN {
+      heading = "^##[[:space:]]+" tolower(section) "[[:space:]]*$"
+    }
+    {
+      line = tolower($0)
+      if (line ~ heading) {
+        found = 1
+        next
+      }
+      if (found && line ~ /^##[[:space:]]+/) {
+        finished = 1
+      }
+      if (found && !finished && $0 !~ /^[[:space:]]*$/ &&
+          (section != "quality gates" ||
+           line ~ /(^|[^[:alnum:]])(pass|fail|not run)([^[:alnum:]]|$)/)) {
+        content = 1
+      }
+    }
+    END {
+      exit !(found && content)
+    }
+  ' "$summary_file"
+}
+correction_summary_is_usable() {
+  local summary_file="$1"
+
+  [ -f "$summary_file" ] && [ -s "$summary_file" ] && [ -r "$summary_file" ] &&
+    summary_section_has_content "$summary_file" "fixes" &&
+    summary_section_has_content "$summary_file" "skipped findings" &&
+    summary_section_has_content "$summary_file" "quality gates"
+}
+
+
+
+
+
 
 
 
@@ -432,11 +473,20 @@ Read every review-*.md and summary-*.md file in that directory, including
 ${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
 
 Read the review at ${REVIEW_FILE}. For each finding, verify it against the
-codebase, implement the fixes you agree with, and note any skipped findings.
-Write the correction summary to ${SUMMARY_FILE}.
+codebase, implement the fixes you agree with, and record every skipped finding
+with its reason.
 
-Do not modify the review file or run the reviewer. Stop after the correction
-summary is written so the original session can run the reviewer again.
+Write ${SUMMARY_FILE} before stopping. It must be non-empty and contain these
+Markdown sections:
+## Fixes
+## Skipped findings
+## Quality gates
+
+Record each fix, skipped finding, and verification command with its result
+(PASS, FAIL, or NOT RUN). Do not modify the review file or run the reviewer.
+Stop after the correction summary is written so the original session can run
+the reviewer again.
+
 CORRECTION_EOF
 )
 
@@ -605,7 +655,14 @@ Before changing any code, read the full round history in ${REVIEW_DIR}.
 Read every review-*.md and summary-*.md file in that directory, including
 ${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
 
-Read ${REVIEW_FILE}, verify its findings, address the agreed items, write ${SUMMARY_FILE}, then run the reviewer again:
+Read ${REVIEW_FILE}, verify its findings, address the agreed items, then write
+${SUMMARY_FILE} with these Markdown sections before running the reviewer:
+## Fixes
+## Skipped findings
+## Quality gates
+Record each fix, skipped finding, and verification command with its result
+(PASS, FAIL, or NOT RUN).
+
 \`\`\`
 bash ${RUNNER_SCRIPT}
 \`\`\`"
@@ -622,8 +679,12 @@ Read ${REVIEW_FILE} and address the findings:
 3. For items you AGREE with: implement the fix
 4. For items you DISAGREE with: briefly note why you are skipping them
 5. Focus on critical and high severity items first
-6. Write a summary of the fixes, skipped findings, and verification results to ${SUMMARY_FILE}
-7. When done addressing all relevant items, you may stop
+6. Write a non-empty summary to ${SUMMARY_FILE} with these Markdown sections:
+   ## Fixes
+   ## Skipped findings
+   ## Quality gates
+   Record each fix, skipped finding, and verification command with its result
+   (PASS, FAIL, or NOT RUN)
 
 If ${REVIEW_FILE} is missing or malformed, rerun the reviewer with a 600000ms timeout:
 \`\`\`
@@ -642,7 +703,22 @@ Use your own judgment. Do not blindly accept every suggestion."
 
   addressing)
     # ── Phase 2: verify review verdict before allowing exit ───────────────
-    if [ -f "$REVIEW_FILE" ]; then
+    if [ -f "$REVIEW_FILE" ] && ! correction_summary_is_usable "$SUMMARY_FILE"; then
+      log "Correction summary missing or incomplete (review_id=$REVIEW_ID, round=$ROUND, file=$SUMMARY_FILE)"
+      REASON="The review verdict cannot be accepted because ${SUMMARY_FILE} is missing or incomplete.
+
+Write a non-empty correction summary with these Markdown sections:
+## Fixes
+## Skipped findings
+## Quality gates
+
+Record each fix, skipped finding, and verification command with its result
+(PASS, FAIL, or NOT RUN), then stop again."
+      SYS_MSG="Review Loop [${REVIEW_ID}] — Correction summary required"
+      jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
+        '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+        || printf '{"decision":"block","reason":"Write the complete correction summary before stopping.","systemMessage":"%s"}\n' "$SYS_MSG"
+    elif [ -f "$REVIEW_FILE" ]; then
       if VERDICT=$(parse_verdict "$REVIEW_FILE"); then
         if [ "$VERDICT" = "PASS" ]; then
           log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER, verdict=$VERDICT)"

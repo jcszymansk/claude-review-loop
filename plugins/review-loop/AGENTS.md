@@ -22,6 +22,7 @@ A Claude Code plugin that creates a two-phase review loop:
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
 - Claude Code does NOT set `stop_hook_active` in hook input — do not rely on it for re-entrancy detection
 - The `addressing` phase verifies the current numbered review file before allowing exit; summaries are kept alongside each round's review
+- Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit.
 
 ## Security constraints
 

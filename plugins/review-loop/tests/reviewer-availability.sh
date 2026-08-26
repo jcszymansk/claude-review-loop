@@ -55,6 +55,18 @@ write_addressing_state() {
     started_at: "2026-08-26T12:34:56Z"
   }' > "$STATE_FILE"
 }
+write_correction_summary() {
+  cat > "$REVIEW_DIR/summary-1.md" <<'SUMMARY_EOF'
+## Fixes
+- fixed the reported issue
+
+## Skipped findings
+- None
+
+## Quality gates
+- shell test: PASS
+SUMMARY_EOF
+}
 
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null; then
@@ -118,13 +130,53 @@ write_addressing_state
 mkdir -p "$REVIEW_DIR"
 : > "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 printf 'implementation summary\n' > "$REVIEW_DIR/summary-0.md"
-printf 'first correction summary\n' > "$REVIEW_DIR/summary-1.md"
+write_correction_summary
 printf 'later round review\n' > "$REVIEW_DIR/review-2.md"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FILE" ]; then
   printf 'FAIL: addressing path did not block without a review: %s\n' "$output" >&2
   exit 1
 fi
+write_addressing_state
+printf 'VERDICT: PASS\nno remaining findings\n' > "$REVIEW_DIR/review-1.md"
+rm -f "$REVIEW_DIR/summary-1.md"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "block" and ((.reason | ascii_downcase) | contains("correction summary"))' <<< "$output" >/dev/null; then
+  printf 'FAIL: missing correction summary did not block: %s\n' "$output" >&2
+  exit 1
+fi
+
+cat > "$REVIEW_DIR/summary-1.md" <<'SUMMARY_EOF'
+## Fixes
+- fixed the reported issue
+
+## Skipped findings
+- None
+SUMMARY_EOF
+write_addressing_state
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "block" and ((.reason | ascii_downcase) | contains("correction summary"))' <<< "$output" >/dev/null; then
+  printf 'FAIL: incomplete correction summary did not block: %s\n' "$output" >&2
+  exit 1
+fi
+write_correction_summary
+cat > "$REVIEW_DIR/summary-1.md" <<'SUMMARY_EOF'
+## Fixes
+- fixed the reported issue
+
+## Skipped findings
+- None
+
+## Quality gates
+- shell test completed
+SUMMARY_EOF
+write_addressing_state
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "block" and ((.reason | ascii_downcase) | contains("correction summary"))' <<< "$output" >/dev/null; then
+  printf 'FAIL: quality gate without a result did not block: %s\n' "$output" >&2
+  exit 1
+fi
+write_correction_summary
 
 assert_review_decision() {
   local content="$1"
@@ -177,11 +229,16 @@ for artifact in summary-0.md summary-1.md review-2.md; do
   fi
 done
 if [ "$(cat "$REVIEW_DIR/summary-0.md")" != 'implementation summary' ] ||
-  [ "$(cat "$REVIEW_DIR/summary-1.md")" != 'first correction summary' ] ||
   [ "$(cat "$REVIEW_DIR/review-2.md")" != 'later round review' ]; then
   printf 'FAIL: PASS cleanup modified retained review history\n' >&2
   exit 1
 fi
+for section in "## Fixes" "## Skipped findings" "## Quality gates"; do
+  if ! grep -Fxq "$section" "$REVIEW_DIR/summary-1.md"; then
+    printf 'FAIL: PASS cleanup modified correction summary\n' >&2
+    exit 1
+  fi
+done
 
 printf '{"active":' > "$STATE_FILE"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
