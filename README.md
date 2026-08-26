@@ -155,8 +155,8 @@ Malformed configuration causes reviewer resolution to fail instead of silently f
 |----------|---------|-------------|
 | `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
-| `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Additional flags passed to `gemini` after its non-interactive prompt. |
-| `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text --trust` | Additional flags passed to `cursor-agent` after its non-interactive prompt. |
+| `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Override the flags passed to `gemini` after its non-interactive prompt. |
+| `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text --trust` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |
 
 ### Telemetry
 
