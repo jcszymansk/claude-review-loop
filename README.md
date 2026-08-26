@@ -83,7 +83,7 @@ claude plugin update review-loop@hamel-review
 
 Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` with task context; before the first stop, Claude replaces it with an implementation summary. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
-2. Runs the reviewer for round 1, streaming output to the terminal when available
+2. Runs the reviewer for round 1, recording its output in `.claude/review-loop.log`
 3. Blocks Claude's exit so it can read the review and address the findings
 4. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
 5. Claude reads the review and addresses the findings. A missing or malformed verdict is treated as `FAIL` and keeps the loop blocked; after a valid verdict, Claude writes `summary-1.md` and stops
@@ -131,7 +131,7 @@ claude-review-loop/
 
 ## Configuration
 
-The stop hook timeout is set to 600 seconds in `hooks/hooks.json` because reviewer CLIs can take several minutes. The hook runs the selected reviewer directly; its output goes to the terminal when available and to `.claude/review-loop.log` otherwise.
+The stop hook timeout is set to 600 seconds in `hooks/hooks.json` because reviewer CLIs can take several minutes. The hook runs the selected reviewer directly and records its output in `.claude/review-loop.log`; stdout remains reserved for the hook's JSON decision.
 
 ### Reviewer selection
 

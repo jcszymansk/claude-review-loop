@@ -482,13 +482,9 @@ exit \$REVIEWER_EXIT
 RUNNER_EOF
     chmod +x "$RUNNER_SCRIPT"
 
-    # Run the current round before asking Claude to address its findings.
+    # Keep reviewer output out of stdout; the hook must emit one JSON decision.
     run_review() {
-      if [ -e /dev/tty ] && { : >/dev/tty; } 2>/dev/null; then
-        "$RUNNER_SCRIPT" </dev/null >/dev/tty 2>&1
-      else
-        "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1
-      fi
+      "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1
     }
 
     REVIEW_START_TIME=$(date +%s)
