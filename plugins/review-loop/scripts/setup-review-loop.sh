@@ -14,11 +14,13 @@ Usage: /review-loop <task description>
 
 Starts a review loop:
   1. Claude implements your task
-  2. Codex performs an independent code review
+  2. A configured reviewer performs an independent code review
   3. Claude addresses the feedback
 
 Environment variables:
+  REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor (default: codex)
   REVIEW_LOOP_CODEX_FLAGS  Override codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+
 
 Example:
   /review-loop Add user authentication with JWT tokens and proper test coverage
@@ -33,6 +35,12 @@ HELP
 done
 
 PROMPT="${ARGS[*]:-}"
+REVIEWER="${REVIEW_LOOP_REVIEWER:-codex}"
+case "$REVIEWER" in
+  codex|gemini|cursor) ;;
+  *) echo "Error: unsupported reviewer '$REVIEWER' (use codex, gemini, or cursor)" >&2; exit 1 ;;
+esac
+
 
 if [ -z "$PROMPT" ]; then
   echo "Error: No task description provided."
@@ -40,11 +48,11 @@ if [ -z "$PROMPT" ]; then
   exit 1
 fi
 
-# Check dependencies
-if ! command -v codex &> /dev/null; then
-  echo "Warning: 'codex' CLI not found. The review phase will fall back to self-review."
-  echo "Install Codex CLI to enable independent code reviews."
+# Check the legacy Codex setup only when Codex is selected.
+if [ "$REVIEWER" = "codex" ] && ! command -v codex &> /dev/null; then
+  echo "Warning: 'codex' CLI not found. Install Codex CLI to enable independent code reviews."
 fi
+
 
 if ! command -v jq &> /dev/null; then
   echo "Error: 'jq' is required but not found."
@@ -78,6 +86,7 @@ cat > .claude/review-loop.local.md << STATE_EOF
 ---
 active: true
 phase: task
+reviewer: ${REVIEWER}
 review_id: ${REVIEW_ID}
 started_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ---
@@ -96,7 +105,7 @@ echo "  Review:  reviews/review-${REVIEW_ID}.md"
 echo ""
 echo "  Lifecycle:"
 echo "    1. You implement the task"
-echo "    2. Stop hook runs Codex for independent review"
+echo "    2. Stop hook prepares the ${REVIEWER} review"
 echo "    3. You address the feedback"
 echo ""
 echo "  Use /cancel-review to abort."

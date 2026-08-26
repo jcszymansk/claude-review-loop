@@ -4,9 +4,10 @@
 
 A Claude Code plugin that creates a two-phase review loop:
 1. Claude implements a task
-2. Stop hook prepares a Codex runner script and blocks Claude
-3. Claude executes the runner script via Bash (Codex output streams to user)
+2. Stop hook prepares a configured reviewer runner and blocks Claude
+3. Claude executes the runner script via Bash (reviewer output streams to user)
 4. Claude reads the review and addresses feedback
+
 
 ## Conventions
 
@@ -15,8 +16,8 @@ A Claude Code plugin that creates a two-phase review loop:
 - Fail-open: on any error, approve exit rather than trapping the user
 - State lives in `.claude/review-loop.local.md` — always clean up on exit
 - Review ID format: `YYYYMMDD-HHMMSS-hexhex` — validate before using in paths
-- Codex runs via a runner script (`.claude/review-loop-run-codex.sh`) that Claude executes via Bash — output streams directly to the user for visibility
-- Codex prompt is saved to `.claude/review-loop-codex-prompt.txt` for the runner script
+- Reviewers run via provider-specific runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) that Claude executes via Bash — output streams directly to the user
+- The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
 - Phase transitions use `transition_phase()` (awk rewrite + verify), NOT fragile sed regex
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
@@ -26,14 +27,14 @@ A Claude Code plugin that creates a two-phase review loop:
 ## Security constraints
 
 - Review IDs are validated against `^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$` to prevent path traversal
-- Codex flags are configurable via `REVIEW_LOOP_CODEX_FLAGS` env var
+- Reviewer-specific flags are currently configurable only for Codex via `REVIEW_LOOP_CODEX_FLAGS`
 - No secrets or credentials are stored in state files
 
 ## Testing
 
 - After modifying stop-hook.sh, test all paths: no-state, task→block, addressing-without-review→block, addressing-with-review→approve
 - Verify JSON output with `jq .` for each path
-- Test with codex unavailable (should block with install instructions)
+- Test with Codex unavailable (should block with install instructions)
 - Test with malformed state files (should fail-open)
 - Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
 - Test addressing phase blocks when review file is missing, approves when it exists

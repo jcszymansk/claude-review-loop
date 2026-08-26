@@ -7,7 +7,8 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
 1. **Task phase**: You describe a task, Claude implements it
-2. **Review phase**: When Claude finishes, the stop hook prepares a [Codex](https://github.com/openai/codex) runner script and blocks exit. Claude then runs Codex directly (with output streaming to the user) and addresses the review feedback.
+2. **Review phase**: When Claude finishes, the stop hook prepares a runner for the selected reviewer and blocks exit. Claude then runs the reviewer directly (with output streaming to the user) and addresses the review feedback.
+
 
 The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
 
@@ -16,7 +17,8 @@ The result: every task gets an independent second opinion before you accept the 
 
 ## Review coverage
 
-The plugin spawns up to 4 parallel Codex sub-agents, depending on project type:
+The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Codex still uses its configured parallel sub-agents; Gemini and Cursor receive the same review prompt as a single headless invocation.
+
 
 | Agent | Always runs? | Focus |
 |-------|-------------|-------|
@@ -25,17 +27,19 @@ The plugin spawns up to 4 parallel Codex sub-agents, depending on project type:
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
-After all agents finish, Codex deduplicates findings and writes a single consolidated review to `reviews/review-<id>.md`.
+After the reviewer finishes, it writes a single consolidated review to `reviews/review-<id>.md`.
+
 
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) (CLI)
+- One reviewer CLI: [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Cursor Agent](https://docs.cursor.com/en/cli)
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
-- [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
+
 
 ### Codex multi-agent
 
-This plugin uses Codex [multi-agent](https://developers.openai.com/codex/multi-agent/) to run parallel review agents. The `/review-loop` command automatically enables it in `~/.codex/config.toml` on first use.
+When Codex is selected, the `/review-loop` command automatically enables [Codex multi-agent](https://developers.openai.com/codex/multi-agent/) in `~/.codex/config.toml` on first use. Gemini and Cursor do not need Codex configuration.
+
 
 To set it up manually instead:
 
@@ -78,11 +82,12 @@ claude plugin update review-loop@hamel-review
 ```
 
 Claude will implement the task. When it finishes, the stop hook:
-1. Prepares a Codex runner script and prompt file
+1. Prepares the selected reviewer runner and prompt file
 2. Blocks Claude's exit with instructions to run the review
-3. Claude runs `bash .claude/review-loop-run-codex.sh` — Codex output streams to the user
-4. Codex writes findings to `reviews/review-<id>.md`
+3. Claude runs the generated reviewer script and sees its output
+4. The reviewer writes findings to `reviews/review-<id>.md`
 5. Claude reads the review, addresses items it agrees with, then stops
+
 
 ### Cancel a review loop
 
@@ -95,7 +100,8 @@ Claude will implement the task. When it finishes, the stop hook:
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
 1. The hook reads the state file (`.claude/review-loop.local.md`)
-2. If in `task` phase: writes a runner script and prompt file, transitions to `addressing`, blocks exit with instructions for Claude to run Codex
+2. If in `task` phase: writes a reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
+
 3. If in `addressing` phase: allows exit and cleans up
 
 State is tracked in `.claude/review-loop.local.md` (add to `.gitignore`). Reviews are written to `reviews/review-<id>.md`.
@@ -113,7 +119,8 @@ claude-review-loop/
 │   ├── hooks.json            # Stop hook registration (30s timeout)
 │   └── stop-hook.sh          # Core lifecycle engine
 ├── scripts/
-│   └── setup-review-loop.sh  # Argument parsing, state file creation
+│   ├── setup-review-loop.sh  # Argument parsing, state file creation
+│   └── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
 ├── AGENTS.md                  # Agent operating guidelines
 ├── CLAUDE.md                  # Symlink to AGENTS.md
 └── README.md
@@ -121,12 +128,12 @@ claude-review-loop/
 
 ## Configuration
 
-The stop hook timeout is set to 30 seconds in `hooks/hooks.json`. The hook itself is fast (it only writes files and returns a block decision); Codex runs separately via Claude's Bash tool.
+The stop hook timeout is set to 30 seconds in `hooks/hooks.json`. The hook itself is fast (it only writes files and returns a block decision); the selected reviewer runs separately via Claude's Bash tool.
+
 
 ### Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
+| `REVIEW_LOOP_REVIEWER` | `codex` | Reviewer CLI: `codex`, `gemini`, or `cursor`. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
 
 ### Telemetry
