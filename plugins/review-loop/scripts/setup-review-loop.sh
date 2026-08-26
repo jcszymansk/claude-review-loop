@@ -111,7 +111,7 @@ if ! mkdir "$LOOP_DIR"; then
   exit 1
 fi
 
-printf '# Review Loop Task\n\n%s\n' "$PROMPT" > "$LOOP_DIR/summary-0.md"
+printf '# Review Loop Task Context\n\n%s\n' "$PROMPT" > "$LOOP_DIR/summary-0.md"
 
 MAX_ROUNDS=3
 

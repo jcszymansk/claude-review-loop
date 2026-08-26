@@ -62,7 +62,7 @@ if ! mkdir "$LOOP_DIR"; then
   exit 1
 fi
 
-printf '# Review Loop Task\n\n%s\n' "$ARGUMENTS" > "$LOOP_DIR/summary-0.md"
+printf '# Review Loop Task Context\n\n%s\n' "$ARGUMENTS" > "$LOOP_DIR/summary-0.md"
 
 
 rm -f .claude/review-loop.lock
