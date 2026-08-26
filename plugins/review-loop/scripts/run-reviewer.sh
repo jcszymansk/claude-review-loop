@@ -21,7 +21,7 @@ case "$REVIEWER" in
     gemini -p "$(cat "$PROMPT_FILE")" ${GEMINI_FLAGS}
     ;;
   cursor)
-    CURSOR_FLAGS="${REVIEW_LOOP_CURSOR_FLAGS:---output-format text --trust}"
+    CURSOR_FLAGS="${REVIEW_LOOP_CURSOR_FLAGS:---output-format text}"
     # shellcheck disable=SC2086
     cursor-agent -p ${CURSOR_FLAGS} < "$PROMPT_FILE"
     ;;

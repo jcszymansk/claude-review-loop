@@ -12,7 +12,7 @@
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml (default: codex)
 # REVIEW_LOOP_CODEX_FLAGS    Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
 # REVIEW_LOOP_GEMINI_FLAGS   Override Gemini flags (default: --output-format text)
-# REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text --trust)
+# REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text)
 
 LOG_FILE=".claude/review-loop.log"
 log() {
