@@ -27,7 +27,7 @@ The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Code
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
-After the reviewer finishes, it writes a single consolidated review to `reviews/review-<id>.md`.
+After the reviewer finishes, it writes a single consolidated review to `reviews/<id>/review.md`.
 
 
 ## Requirements
@@ -85,7 +85,7 @@ Claude will implement the task. When it finishes, the stop hook:
 1. Prepares the selected reviewer runner and prompt file
 2. Blocks Claude's exit with instructions to run the review
 3. Claude runs the generated reviewer script and sees its output
-4. The reviewer writes findings to `reviews/review-<id>.md`
+4. The reviewer writes findings to `reviews/<id>/review.md`
 5. Claude reads the review, addresses items it agrees with, then stops
 
 
@@ -103,7 +103,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 2. If in `task` phase: writes a reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
 3. If in `addressing` phase: allows exit and cleans up
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Reviews are written to `reviews/review-<id>.md`.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/`, and its review is written to `reviews/<id>/review.md`.
 
 ## File structure
 

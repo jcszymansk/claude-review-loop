@@ -75,7 +75,7 @@ Replace ad-hoc phase parsing with explicit per-loop state and artifacts.
 
 - [x] Store state as JSON.
 - [x] Track reviewer, task, round, maximum rounds, phase, and review ID.
-- [ ] Create one directory per loop.
+- [x] Create one directory per loop.
 - [ ] Store `summary-0.md`, `review-1.md`, `summary-1.md`, and later rounds together.
 - [ ] Require the first review line to be exactly `VERDICT: PASS` or `VERDICT: FAIL`.
 - [ ] Treat an absent or malformed verdict as `FAIL`.

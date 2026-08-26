@@ -8,6 +8,8 @@ PROJECT_DIR="$TMP_DIR/project"
 HOME_DIR="$TMP_DIR/home"
 BIN_DIR="$TMP_DIR/bin"
 STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.json"
+REVIEW_DIR="$PROJECT_DIR/reviews/20260826-123456-abcdef"
+
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -77,6 +79,11 @@ assert_missing_cli() {
     exit 1
   fi
 
+  if [ ! -d "$REVIEW_DIR" ]; then
+    printf 'FAIL: missing %s CLI did not create its loop directory\n' "$reviewer" >&2
+    exit 1
+  fi
+
   if [ -f "$STATE_FILE" ]; then
     printf 'FAIL: missing %s CLI left active state behind\n' "$reviewer" >&2
     exit 1
@@ -88,7 +95,7 @@ assert_missing_cli gemini gemini Gemini 'npm install -g @google/gemini-cli'
 assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/install -fsS | bash'
 
 write_addressing_state
-mkdir -p "$PROJECT_DIR/reviews"
+mkdir -p "$REVIEW_DIR"
 : > "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FILE" ]; then
@@ -96,10 +103,14 @@ if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FIL
   exit 1
 fi
 
-: > "$PROJECT_DIR/reviews/review-20260826-123456-abcdef.md"
+: > "$REVIEW_DIR/review.md"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
   printf 'FAIL: addressing path did not approve with a review: %s\n' "$output" >&2
+  exit 1
+fi
+if [ ! -d "$REVIEW_DIR" ]; then
+  printf 'FAIL: review loop directory was removed with the state: %s\n' "$output" >&2
   exit 1
 fi
 

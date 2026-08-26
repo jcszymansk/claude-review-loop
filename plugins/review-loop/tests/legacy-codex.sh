@@ -8,6 +8,8 @@ TMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TMP_DIR/project"
 HOME_DIR="$TMP_DIR/home"
 SETUP_PROJECT_DIR="$TMP_DIR/setup-project"
+LOOP_DIR="$PROJECT_DIR/reviews/20260826-113800-abcdef"
+
 SETUP_HOME_DIR="$TMP_DIR/setup-home"
 XDG_DIR="$TMP_DIR/xdg"
 BIN_DIR="$TMP_DIR/bin"
@@ -52,7 +54,15 @@ case "$OUTPUT" in
     exit 1
     ;;
 esac
+if [ ! -d "$LOOP_DIR" ]; then
+  printf 'FAIL: legacy state did not create its loop directory\n' >&2
+  exit 1
+fi
+
 grep -q "REVIEWER='codex'" "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
+grep -q 'reviews/20260826-113800-abcdef/review.md' \
+  "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+
 jq -e '
   .phase == "addressing"
   and (.reviewer // "codex") == "codex"
@@ -76,5 +86,10 @@ jq -e '
   and .max_rounds == 3
   and (.review_id | test("^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$"))
 ' "$SETUP_PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
+SETUP_REVIEW_ID=$(jq -r '.review_id' "$SETUP_PROJECT_DIR/.claude/review-loop.local.json")
+if [ ! -d "$SETUP_PROJECT_DIR/reviews/$SETUP_REVIEW_ID" ]; then
+  printf 'FAIL: setup did not create its loop directory\n' >&2
+  exit 1
+fi
 
 printf 'legacy Codex compatibility test passed\n'

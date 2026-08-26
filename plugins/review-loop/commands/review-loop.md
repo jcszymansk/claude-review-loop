@@ -56,6 +56,12 @@ fi
 if [ "$REVIEWER" = "codex" ]; then
   "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-codex-config.sh"
 fi
+LOOP_DIR="reviews/${REVIEW_ID}"
+if ! mkdir "$LOOP_DIR"; then
+  echo "Error: Review loop directory already exists: $LOOP_DIR"
+  exit 1
+fi
+
 
 rm -f .claude/review-loop.lock
 STATE_TEMP="${STATE_FILE}.tmp.$$"
@@ -70,6 +76,7 @@ jq -n \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"
+echo "Review artifacts: ${LOOP_DIR}"
 ```
 
 After setup completes successfully, proceed to implement the task described in the arguments. Work thoroughly and completely — write clean, well-structured, well-tested code.

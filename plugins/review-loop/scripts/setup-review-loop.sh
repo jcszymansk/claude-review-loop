@@ -104,6 +104,13 @@ else
   RAND_HEX=$(head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')
 fi
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-${RAND_HEX}"
+LOOP_DIR="reviews/${REVIEW_ID}"
+mkdir -p reviews
+if ! mkdir "$LOOP_DIR"; then
+  echo "Error: Review loop directory already exists: $LOOP_DIR"
+  exit 1
+fi
+
 MAX_ROUNDS=3
 
 # Clean up stale lock from previous runs
@@ -124,14 +131,12 @@ jq -n \
 mv "$STATE_TEMP" "$STATE_FILE"
 
 
-# Ensure reviews directory exists
-mkdir -p reviews
 
 echo ""
 echo "Review Loop activated"
 echo "  ID:      ${REVIEW_ID}"
 echo "  Phase:   1/2 — Task implementation"
-echo "  Review:  reviews/review-${REVIEW_ID}.md"
+echo "  Review:  ${LOOP_DIR}/review.md"
 echo ""
 echo "  Lifecycle:"
 echo "    1. You implement the task"

@@ -108,6 +108,9 @@ if ! echo "$REVIEW_ID" | grep -qE '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'; then
   exit 0
 
 fi
+REVIEW_DIR="reviews/${REVIEW_ID}"
+REVIEW_FILE="${REVIEW_DIR}/review.md"
+
 case "$REVIEWER" in
   codex)
     REVIEWER_CLI="codex"
@@ -371,8 +374,12 @@ case "$PHASE" in
     # ── Phase 1 → 2: Prepare a reviewer for Claude to run directly ─────
     # The hook writes the prompt and runner, then Claude executes the
     # reviewer via Bash so its output streams to the user.
-    REVIEW_FILE="reviews/review-${REVIEW_ID}.md"
-    mkdir -p reviews
+    if ! mkdir -p "$REVIEW_DIR"; then
+      log "ERROR: failed to create review directory: $REVIEW_DIR"
+      rm -f "$STATE_FILE"
+      printf '{"decision":"approve"}\n'
+      exit 0
+    fi
 
     if ! command -v "$REVIEWER_CLI" &> /dev/null; then
       log "ERROR: $REVIEWER_CLI not found on PATH"
@@ -477,7 +484,6 @@ Use your own judgment. Do not blindly accept every suggestion."
 
   addressing)
     # ── Phase 2: verify review was actually produced before allowing exit ──
-    REVIEW_FILE="reviews/review-${REVIEW_ID}.md"
     if [ -f "$REVIEW_FILE" ]; then
       # Review exists — success
       log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER)"
