@@ -85,7 +85,7 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 1. Prepares the selected reviewer runner and prompt file
 2. Blocks Claude's exit with instructions to run the review
 3. Claude runs the generated reviewer script and sees its output
-4. The reviewer writes findings to `reviews/<id>/review-1.md`
+4. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
 5. Claude reads the review and addresses the findings. A missing or malformed verdict is treated as `FAIL` and keeps the loop blocked; after a valid verdict, Claude writes `summary-1.md` and stops
 
 

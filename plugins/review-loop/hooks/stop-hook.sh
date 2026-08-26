@@ -455,6 +455,7 @@ log() { echo "[\$(date -u +"%Y-%m-%dT%H:%M:%SZ")] \$*" >> "\$LOG_FILE"; }
 
 REVIEWER='${REVIEWER}'
 PROMPT_FILE='${PROMPT_FILE}'
+REVIEW_FILE='${REVIEW_FILE}'
 DISPATCHER_SCRIPT='${REVIEWER_DISPATCHER}'
 if [ ! -f "\$PROMPT_FILE" ]; then
   echo "ERROR: prompt file missing: \$PROMPT_FILE" >&2
@@ -468,8 +469,8 @@ fi
 log "Starting \$REVIEWER review"
 START_TIME=\$(date +%s)
 
-"\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" || REVIEWER_EXIT=\$?
-REVIEWER_EXIT=\${REVIEWER_EXIT:-0}
+"\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE"
+REVIEWER_EXIT=\$?
 
 ELAPSED=\$(( \$(date +%s) - START_TIME ))
 log "\$REVIEWER finished (exit=\$REVIEWER_EXIT, elapsed=\${ELAPSED}s)"
