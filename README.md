@@ -7,7 +7,7 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
 1. **Task phase**: You describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: The stop hook prepares and runs the selected reviewer for the current round, then blocks exit. Claude reads `review-1.md`, addresses the findings, and writes `summary-1.md`. A missing or malformed verdict is treated as `FAIL`.
+2. **Review phase**: The stop hook prepares and runs the selected reviewer for the current round, then blocks exit. Claude reads `review-1.md`, addresses the findings, and writes `summary-1.md`. A `VERDICT: PASS` allows exit; `VERDICT: FAIL`, a missing verdict, or a malformed verdict keeps the loop blocked.
 
 
 The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
@@ -86,7 +86,7 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 2. Runs the reviewer for round 1, recording its output in `.claude/review-loop.log`
 3. Blocks Claude's exit so it can read the review and address the findings
 4. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
-5. Claude reads the review and addresses the findings. A missing or malformed verdict is treated as `FAIL` and keeps the loop blocked; after a valid verdict, Claude writes `summary-1.md` and stops
+5. Claude reads the review and addresses the findings. A `VERDICT: FAIL`, missing verdict, or malformed verdict keeps the loop blocked until the reviewer is run again; only `VERDICT: PASS` allows exit after Claude writes `summary-1.md`.
 
 
 ### Cancel a review loop
@@ -101,7 +101,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a numbered reviewer runner and prompt file, runs the configured reviewer for the current round, transitions to `addressing`, and blocks exit so Claude can address the review
-3. If in `addressing` phase: verifies the current numbered review has a valid verdict. Missing or malformed verdicts are treated as `FAIL` and keep the loop blocked; a valid review then allows exit and cleans up
+3. If in `addressing` phase: verifies the current numbered review has a valid `VERDICT: PASS`. A `VERDICT: FAIL`, missing verdict, or malformed verdict keeps the loop blocked until the reviewer is run again; a `PASS` verdict then allows exit and cleans up.
 
 The hook removes runtime state and generated runner files only. It never removes `reviews/<id>/`, so summaries and review output remain available after cleanup. `/cancel-review` follows the same rule; future round-limit termination must preserve the directory as well.
 

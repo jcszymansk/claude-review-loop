@@ -87,9 +87,10 @@ Before your first stop, read `.claude/review-loop.local.json` to get the review 
 
 After the stop hook runs the review:
 1. Read `reviews/<review_id>/review-1.md` and address the findings
-2. If the first line is absent or malformed, treat the verdict as `FAIL` and rerun the generated reviewer script with a 600000ms timeout
-3. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
-4. Stop after the correction summary is complete
+2. Read `reviews/<review_id>/review-1.md` and address the findings
+3. If the first line is `VERDICT: FAIL`, absent, or malformed, treat it as `FAIL` and run the reviewer again
+4. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
+5. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete
 
 The loop directory is kept after cleanup. Later rounds use the same directory with `review-<round>.md` and `summary-<round>.md`.
 
@@ -97,4 +98,4 @@ RULES:
 - Complete the task to the best of your ability before stopping
 - Do not stop prematurely or skip parts of the task
 - Always write the required summary before stopping
-- When blocked by the hook, read the review first; rerun the generated reviewer script if the artifact is missing or malformed, then address the findings
+- When blocked by the hook, read the review first; rerun the generated reviewer script if the verdict is `FAIL`, the artifact is missing, or the verdict is malformed, then address the findings

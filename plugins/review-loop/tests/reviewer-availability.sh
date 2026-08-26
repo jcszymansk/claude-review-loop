@@ -162,7 +162,7 @@ assert_review_decision "" block
 assert_review_decision "Review complete without a verdict" block
 assert_review_decision "verdict: PASS" block
 assert_review_decision "VERDICT: PASS " block
-assert_review_decision "VERDICT: FAIL" approve
+assert_review_decision "VERDICT: FAIL" block
 assert_review_decision $'VERDICT: PASS\nNo findings.' approve
 
 if [ ! -d "$REVIEW_DIR" ]; then

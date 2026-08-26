@@ -556,9 +556,22 @@ Use your own judgment. Do not blindly accept every suggestion."
     # ── Phase 2: verify review verdict before allowing exit ───────────────
     if [ -f "$REVIEW_FILE" ]; then
       if VERDICT=$(parse_verdict "$REVIEW_FILE"); then
-        log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER, verdict=$VERDICT)"
-        cleanup_runtime_files
-        printf '{"decision":"approve"}\n'
+        if [ "$VERDICT" = "PASS" ]; then
+          log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER, verdict=$VERDICT)"
+          cleanup_runtime_files
+          printf '{"decision":"approve"}\n'
+        else
+          log "Review verdict: FAIL (review_id=$REVIEW_ID)"
+          REASON="The review verdict is FAIL. Address the findings, write the correction summary, then run the reviewer again:
+
+\`\`\`
+bash ${RUNNER_SCRIPT}
+\`\`\`"
+          SYS_MSG="Review Loop [${REVIEW_ID}] — Verdict: FAIL"
+          jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
+            '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+            || printf '{"decision":"block","reason":"The review verdict is FAIL. Address the findings and run the reviewer again.","systemMessage":"Review Loop verdict: FAIL"}\n'
+        fi
       else
         log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"
         REASON="The review verdict is FAIL because it is absent or malformed. Treat it as FAIL, correct the review output, then run the reviewer again:
