@@ -19,7 +19,9 @@ Starts a review loop:
 
 Environment variables:
   REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor
-  REVIEW_LOOP_CODEX_FLAGS  Override codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+  REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+  REVIEW_LOOP_GEMINI_FLAGS  Override Gemini flags (default: --output-format text)
+  REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text --trust)
 
 Configuration files:
   .review-loop.toml  Project reviewer configuration
@@ -56,9 +58,22 @@ if [ -z "$PROMPT" ]; then
   exit 1
 fi
 
-# Check the legacy Codex setup only when Codex is selected.
-if [ "$REVIEWER" = "codex" ] && ! command -v codex &> /dev/null; then
-  echo "Warning: 'codex' CLI not found. Install Codex CLI to enable independent code reviews."
+case "$REVIEWER" in
+  codex)
+    REVIEWER_CLI="codex"
+    REVIEWER_INSTALL="Install Codex CLI: npm install -g @openai/codex"
+    ;;
+  gemini)
+    REVIEWER_CLI="gemini"
+    REVIEWER_INSTALL="Install Gemini CLI: npm install -g @google/gemini-cli"
+    ;;
+  cursor)
+    REVIEWER_CLI="cursor-agent"
+    REVIEWER_INSTALL="Install Cursor Agent CLI: curl https://cursor.com/install -fsS | bash"
+    ;;
+esac
+if ! command -v "$REVIEWER_CLI" &> /dev/null; then
+  echo "Warning: '$REVIEWER_CLI' CLI not found. $REVIEWER_INSTALL"
 fi
 
 

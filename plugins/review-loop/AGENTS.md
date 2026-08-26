@@ -27,7 +27,7 @@ A Claude Code plugin that creates a two-phase review loop:
 ## Security constraints
 
 - Review IDs are validated against `^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$` to prevent path traversal
-- Reviewer-specific flags are currently configurable only for Codex via `REVIEW_LOOP_CODEX_FLAGS`
+- Reviewer-specific flags are configurable through `REVIEW_LOOP_CODEX_FLAGS`, `REVIEW_LOOP_GEMINI_FLAGS`, and `REVIEW_LOOP_CURSOR_FLAGS`
 - No secrets or credentials are stored in state files
 
 ## Testing

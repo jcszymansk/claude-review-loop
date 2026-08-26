@@ -16,7 +16,23 @@ First, set up the review loop by running this setup command:
 set -e
 
 REVIEWER="$("${CLAUDE_PLUGIN_ROOT}/scripts/resolve-reviewer.sh")"
-
+case "$REVIEWER" in
+  codex)
+    REVIEWER_CLI="codex"
+    REVIEWER_NAME="Codex"
+    REVIEWER_INSTALL="npm install -g @openai/codex"
+    ;;
+  gemini)
+    REVIEWER_CLI="gemini"
+    REVIEWER_NAME="Gemini"
+    REVIEWER_INSTALL="npm install -g @google/gemini-cli"
+    ;;
+  cursor)
+    REVIEWER_CLI="cursor-agent"
+    REVIEWER_NAME="Cursor Agent"
+    REVIEWER_INSTALL="curl https://cursor.com/install -fsS | bash"
+    ;;
+esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 mkdir -p .claude reviews
 if [ -f .claude/review-loop.local.md ]; then
@@ -24,11 +40,13 @@ if [ -f .claude/review-loop.local.md ]; then
   exit 1
 fi
 
+if ! command -v "$REVIEWER_CLI" >/dev/null 2>&1; then
+  echo "Error: ${REVIEWER_NAME} CLI (${REVIEWER_CLI}) is not installed."
+  echo "Install it: ${REVIEWER_INSTALL}"
+  exit 1
+fi
+
 if [ "$REVIEWER" = "codex" ]; then
-  command -v codex >/dev/null 2>&1 || {
-    echo "Error: Codex CLI is not installed. Install it: npm install -g @openai/codex"
-    exit 1
-  }
   CODEX_CONFIG="${HOME}/.codex/config.toml"
   if [ ! -f "$CODEX_CONFIG" ]; then
     mkdir -p "${HOME}/.codex"

@@ -10,7 +10,9 @@
 # Reviewer selection:
 #   REVIEW_LOOP_REVIEWER, .review-loop.toml, and
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml (default: codex)
-# REVIEW_LOOP_CODEX_FLAGS  Override codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+# REVIEW_LOOP_CODEX_FLAGS    Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
+# REVIEW_LOOP_GEMINI_FLAGS   Override Gemini flags (default: --output-format text)
+# REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text --trust)
 
 LOG_FILE=".claude/review-loop.log"
 log() {
@@ -75,9 +77,26 @@ if ! echo "$REVIEW_ID" | grep -qE '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'; then
 
 fi
 case "$REVIEWER" in
-  codex|gemini|cursor)
-    PROMPT_FILE=".claude/review-loop-${REVIEWER}-prompt.txt"
-    RUNNER_SCRIPT=".claude/review-loop-run-${REVIEWER}.sh"
+  codex)
+    REVIEWER_CLI="codex"
+    REVIEWER_NAME="Codex"
+    REVIEWER_INSTALL="npm install -g @openai/codex"
+    PROMPT_FILE=".claude/review-loop-codex-prompt.txt"
+    RUNNER_SCRIPT=".claude/review-loop-run-codex.sh"
+    ;;
+  gemini)
+    REVIEWER_CLI="gemini"
+    REVIEWER_NAME="Gemini"
+    REVIEWER_INSTALL="npm install -g @google/gemini-cli"
+    PROMPT_FILE=".claude/review-loop-gemini-prompt.txt"
+    RUNNER_SCRIPT=".claude/review-loop-run-gemini.sh"
+    ;;
+  cursor)
+    REVIEWER_CLI="cursor-agent"
+    REVIEWER_NAME="Cursor Agent"
+    REVIEWER_INSTALL="curl https://cursor.com/install -fsS | bash"
+    PROMPT_FILE=".claude/review-loop-cursor-prompt.txt"
+    RUNNER_SCRIPT=".claude/review-loop-run-cursor.sh"
     ;;
   *)
     log "ERROR: unsupported reviewer: $REVIEWER"
@@ -323,22 +342,21 @@ case "$PHASE" in
     REVIEW_FILE="reviews/review-${REVIEW_ID}.md"
     mkdir -p reviews
 
-    REVIEW_PROMPT=$(build_review_prompt "$REVIEW_FILE")
+    if ! command -v "$REVIEWER_CLI" &> /dev/null; then
+      log "ERROR: $REVIEWER_CLI not found on PATH"
+      rm -f "$STATE_FILE"
+      REASON="ERROR: ${REVIEWER_NAME} CLI (${REVIEWER_CLI}) is not installed. The review loop requires ${REVIEWER_NAME} for independent code review.
+
+Install it: ${REVIEWER_INSTALL}
+
+Then run /review-loop again."
+      jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null \
+        || printf '{"decision":"block","reason":"%s CLI (%s) is not installed. Install it: %s"}\n' \
+          "$REVIEWER_NAME" "$REVIEWER_CLI" "$REVIEWER_INSTALL"
+      exit 0
+    fi
 
     if [ "$REVIEWER" = "codex" ]; then
-      if ! command -v codex &> /dev/null; then
-        log "ERROR: codex not found on PATH"
-        rm -f "$STATE_FILE"
-        REASON="ERROR: Codex CLI is not installed. The review loop requires Codex for independent code review.
-
-Install it: npm install -g @openai/codex
-
-Then run /review-loop again. Multi-agent will be auto-configured."
-        jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null \
-          || printf '{"decision":"block","reason":"Codex CLI is not installed. Install it: npm install -g @openai/codex"}\n'
-        exit 0
-      fi
-
       # Preserve Codex's existing multi-agent setup.
       CODEX_CONFIG="${HOME}/.codex/config.toml"
       if [ ! -f "$CODEX_CONFIG" ] || ! grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
@@ -356,6 +374,8 @@ Then run /review-loop again."
         exit 0
       fi
     fi
+
+    REVIEW_PROMPT=$(build_review_prompt "$REVIEW_FILE")
 
     printf '%s' "$REVIEW_PROMPT" > "$PROMPT_FILE"
 

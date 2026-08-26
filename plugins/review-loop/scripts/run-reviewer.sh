@@ -16,10 +16,14 @@ case "$REVIEWER" in
     codex ${CODEX_FLAGS} exec "$(cat "$PROMPT_FILE")"
     ;;
   gemini)
-    gemini -p "$(cat "$PROMPT_FILE")" --output-format text
+    GEMINI_FLAGS="${REVIEW_LOOP_GEMINI_FLAGS:---output-format text}"
+    # shellcheck disable=SC2086
+    gemini -p "$(cat "$PROMPT_FILE")" ${GEMINI_FLAGS}
     ;;
   cursor)
-    cursor-agent -p --output-format text --trust < "$PROMPT_FILE"
+    CURSOR_FLAGS="${REVIEW_LOOP_CURSOR_FLAGS:---output-format text --trust}"
+    # shellcheck disable=SC2086
+    cursor-agent -p ${CURSOR_FLAGS} < "$PROMPT_FILE"
     ;;
   *)
     echo "Unsupported reviewer: $REVIEWER" >&2
