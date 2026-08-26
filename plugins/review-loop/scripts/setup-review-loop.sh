@@ -75,6 +75,10 @@ esac
 if ! command -v "$REVIEWER_CLI" &> /dev/null; then
   echo "Warning: '$REVIEWER_CLI' CLI not found. $REVIEWER_INSTALL"
 fi
+if [ "$REVIEWER" = "codex" ]; then
+  "$SCRIPT_DIR/ensure-codex-config.sh"
+fi
+
 
 
 if ! command -v jq &> /dev/null; then

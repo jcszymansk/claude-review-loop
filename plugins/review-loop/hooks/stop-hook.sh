@@ -58,7 +58,8 @@ PHASE=$(parse_field "phase")
 REVIEW_ID=$(parse_field "review_id")
 REVIEWER=$(parse_field "reviewer")
 if [ -z "$REVIEWER" ]; then
-  REVIEWER=$("$REVIEWER_RESOLVER") || REVIEWER=""
+  # Legacy state files predate reviewer selection and always used Codex.
+  REVIEWER=codex
 fi
 
 # Not active → clean up and exit

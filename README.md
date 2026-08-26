@@ -121,7 +121,8 @@ claude-review-loop/
 ├── scripts/
 │   ├── setup-review-loop.sh  # Argument parsing, state file creation
 │   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
-│   └── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
+│   ├── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
+│   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
 ├── AGENTS.md                  # Agent operating guidelines
 ├── CLAUDE.md                  # Symlink to AGENTS.md
 └── README.md

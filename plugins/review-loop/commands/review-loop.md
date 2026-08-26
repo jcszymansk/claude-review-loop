@@ -47,23 +47,7 @@ if ! command -v "$REVIEWER_CLI" >/dev/null 2>&1; then
 fi
 
 if [ "$REVIEWER" = "codex" ]; then
-  CODEX_CONFIG="${HOME}/.codex/config.toml"
-  if [ ! -f "$CODEX_CONFIG" ]; then
-    mkdir -p "${HOME}/.codex"
-    printf '[features]\nmulti_agent = true\n' > "$CODEX_CONFIG"
-    echo "Created ~/.codex/config.toml with multi_agent enabled"
-  elif ! grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
-    if grep -qE '^\[features\]' "$CODEX_CONFIG"; then
-      if [ "$(uname)" = "Darwin" ]; then
-        sed -i '' '/^\[features\]/a\'$'\n''multi_agent = true' "$CODEX_CONFIG"
-      else
-        sed -i '/^\[features\]/a multi_agent = true' "$CODEX_CONFIG"
-      fi
-    else
-      printf '\n[features]\nmulti_agent = true\n' >> "$CODEX_CONFIG"
-    fi
-    echo "Enabled multi_agent in ~/.codex/config.toml"
-  fi
+  "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-codex-config.sh"
 fi
 
 rm -f .claude/review-loop.lock
