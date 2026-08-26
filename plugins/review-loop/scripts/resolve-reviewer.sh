@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_CONFIG=".review-loop.toml"
-USER_CONFIG="${XDG_CONFIG_HOME:-${HOME:-$PWD/.config}}/review-loop/config.toml"
+USER_CONFIG="${XDG_CONFIG_HOME:-${HOME:-$PWD}/.config}/review-loop/config.toml"
 
 read_config_reviewer() {
   local config_file="$1"

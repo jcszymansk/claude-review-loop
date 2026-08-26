@@ -147,6 +147,7 @@ reviewer = "cursor"
 ```
 
 Supported reviewers are `codex`, `gemini`, and `cursor`.
+Malformed configuration causes reviewer resolution to fail instead of silently falling back to another source.
 
 ### Environment variables
 
