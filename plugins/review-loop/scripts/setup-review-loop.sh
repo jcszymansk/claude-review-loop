@@ -120,7 +120,7 @@ printf '# Review Loop Task Context\n\n%s\n' "$PROMPT" > "$LOOP_DIR/summary-0.md"
 
 
 # Clean up stale lock from previous runs
-rm -f .claude/review-loop.lock
+rm -f .claude/review-loop.lock .claude/review-loop-child.pid .claude/review-loop-child.pid.tmp.*
 
 # Create state file
 mkdir -p .claude

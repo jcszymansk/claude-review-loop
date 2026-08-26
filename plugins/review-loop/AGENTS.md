@@ -15,7 +15,7 @@ A Claude Code plugin that creates a bounded review loop:
 - Fail-open: on any error, approve exit rather than trapping the user
 - State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at` — clean up runtime state on exit, but never remove `reviews/<review_id>/` history
 - Each loop gets a validated `reviews/<review_id>/` directory containing `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome
-- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact
+- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; the active child PID is tracked in `.claude/review-loop-child.pid`
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
@@ -38,3 +38,4 @@ A Claude Code plugin that creates a bounded review loop:
 - Test with malformed state files (should fail-open)
 - Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
 - Test addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, and approves only when a valid `PASS` verdict exists.
+- Run `tests/cancellation.sh` to verify reviewer and correction-session processes stop while review history remains.

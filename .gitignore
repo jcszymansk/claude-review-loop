@@ -1,6 +1,7 @@
 # Review loop state (ephemeral, per-session)
 .claude/review-loop.local.json
 .claude/review-loop.log
+.claude/review-loop-child.pid
 
 # Review artifacts (generated, not source)
 reviews/

@@ -106,7 +106,7 @@ Add the review, correction, and re-review loop.
 - [x] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [x] Continue until `PASS` or the configured maximum round count.
 - [x] Make the round limit configurable, with a bounded default.
-- [ ] Support cancellation that stops child processes without deleting review history.
+- [x] Support cancellation that stops child processes without deleting review history.
 - [ ] Prevent correction-session Stop hooks from recursively starting another orchestrator.
 
 The initial implementation should remain interactive. Fresh headless Claude sessions should handle only later correction rounds.
@@ -137,7 +137,7 @@ Add deterministic tests around the shell lifecycle before changing the default b
 - [ ] Test repeated `FAIL` until the round limit.
 - [ ] Test malformed verdicts and missing artifacts.
 - [ ] Test reviewer non-zero exit and timeout behavior.
-- [ ] Test cancellation and child-process cleanup.
+- [x] Test cancellation and child-process cleanup.
 - [ ] Test nested working directories and worktrees.
 - [ ] Test concurrent loop isolation.
 - [ ] Test provider selection and command construction with fake CLIs.

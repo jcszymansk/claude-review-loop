@@ -1,8 +1,7 @@
 ---
 description: "Cancel an active review loop"
 allowed-tools:
-  - Bash(test -f .claude/review-loop.local.json *)
-  - Bash(rm -f .claude/review-loop.local.json .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries)
+  - Bash
   - Read
 ---
 
@@ -14,14 +13,17 @@ test -f .claude/review-loop.local.json && echo "ACTIVE" || echo "NONE"
 
 If active, read `.claude/review-loop.local.json` to get the current phase and review ID.
 
-Then remove the state file, lock file, and any generated reviewer files:
+Then run the cancellation helper:
 
 ```bash
-rm -f .claude/review-loop.local.json .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries
+"${CLAUDE_PLUGIN_ROOT}/scripts/cancel-review-loop.sh"
 ```
 
-Leave `reviews/<review_id>/` untouched. It contains the review history and must remain available after cancellation.
+The helper stops the active reviewer or correction-session process and its
+children, then removes the runtime state and generated reviewer files.
+Leave `reviews/<review_id>/` untouched. It contains the review history and
+must remain available after cancellation.
 
-Report: "Review loop cancelled (was at phase: X, review ID: Y)"
+Report the helper output. If no review loop was active, it reports:
+"No active review loop found."
 
-If no review loop was active, report: "No active review loop found."

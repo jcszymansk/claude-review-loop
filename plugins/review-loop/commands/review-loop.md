@@ -65,7 +65,7 @@ fi
 printf '# Review Loop Task Context\n\n%s\n' "$ARGUMENTS" > "$LOOP_DIR/summary-0.md"
 
 
-rm -f .claude/review-loop.lock
+rm -f .claude/review-loop.lock .claude/review-loop-child.pid .claude/review-loop-child.pid.tmp.*
 STATE_TEMP="${STATE_FILE}.tmp.$$"
 jq -n \
   --arg reviewer "$REVIEWER" \

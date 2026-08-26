@@ -6,8 +6,8 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 
 When you use `/review-loop`, the plugin creates a bounded review lifecycle:
 
-1. **Task phase**: You describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: The Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it starts a fresh interactive Claude correction session, then reruns the reviewer for the next round after the correction summary is complete. The loop stops on `VERDICT: PASS` or the maximum round count. A missing or malformed verdict keeps the loop from being accepted.
+1. **Task phase**: you describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
+2. **Review phase**: the Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it starts a fresh interactive Claude correction session, then reruns the reviewer for the next round after the correction summary is complete. The loop stops on `VERDICT: PASS` or the maximum round count. A missing or malformed verdict keeps the loop from being accepted. `/cancel-review` stops active reviewer or correction-session processes and preserves the review history.
 
 
 
@@ -97,6 +97,9 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 /cancel-review
 ```
 
+Cancellation stops the active reviewer or correction-session process and its
+children. The `reviews/<id>/` history remains on disk.
+
 ## How it works
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
@@ -125,6 +128,7 @@ claude-review-loop/
 │   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
 │   ├── resolve-max-rounds.sh # Round-limit selection and validation
 │   ├── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
+│   ├── cancel-review-loop.sh  # Stop active loop child processes
 │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
 ├── AGENTS.md                  # Agent operating guidelines
 ├── CLAUDE.md                  # Symlink to AGENTS.md

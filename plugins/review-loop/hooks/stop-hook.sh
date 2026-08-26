@@ -28,7 +28,9 @@ cleanup_generated_files() {
     .claude/review-loop-codex-prompt.txt \
     .claude/review-loop-gemini-prompt.txt \
     .claude/review-loop-cursor-prompt.txt \
-    .claude/review-loop-retries
+    .claude/review-loop-retries \
+    .claude/review-loop-child.pid \
+    .claude/review-loop-child.pid.tmp.*
 }
 
 trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_files; printf "{\"decision\":\"approve\"}\n"; exit 0' ERR
@@ -42,11 +44,27 @@ if [ "${REVIEW_LOOP_CORRECTION:-}" = "1" ]; then
 fi
 
 
+CHILD_PID_FILE=".claude/review-loop-child.pid"
 STATE_FILE=".claude/review-loop.local.json"
 cleanup_runtime_files() {
   # Keep reviews/${REVIEW_ID:-unknown}/ intact; it is the permanent loop history.
   rm -f "$STATE_FILE" .claude/review-loop.lock
   cleanup_generated_files
+}
+write_child_pid() {
+  local pid="$1"
+  local temp_file="${CHILD_PID_FILE}.tmp.$$"
+  if printf '%s\n' "$pid" > "$temp_file"; then
+    mv "$temp_file" "$CHILD_PID_FILE"
+  else
+    rm -f "$temp_file"
+  fi
+}
+clear_child_pid() {
+  local pid="$1"
+  if [ -f "$CHILD_PID_FILE" ] && [ "$(cat "$CHILD_PID_FILE" 2>/dev/null || true)" = "$pid" ]; then
+    rm -f "$CHILD_PID_FILE"
+  fi
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
@@ -490,6 +508,7 @@ transition_to_next_round() {
 start_correction_session() {
   local correction_prompt
   local correction_status
+  local correction_pid
   local tty_name
   local tty_device
 
@@ -532,8 +551,15 @@ CORRECTION_EOF
 
   log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
   if [ -n "$tty_device" ] && [ -r "$tty_device" ] && [ -w "$tty_device" ]; then
-    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1
-    correction_status=$?
+    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1 &
+    correction_pid=$!
+    write_child_pid "$correction_pid"
+    if wait "$correction_pid"; then
+      correction_status=0
+    else
+      correction_status=$?
+    fi
+    clear_child_pid "$correction_pid"
   else
     log "ERROR: fresh interactive Claude correction session unavailable: Stop hook has no terminal"
     correction_status=1
@@ -605,6 +631,24 @@ REVIEWER='${REVIEWER}'
 PROMPT_FILE='${PROMPT_FILE}'
 REVIEW_FILE='${REVIEW_FILE}'
 DISPATCHER_SCRIPT='${REVIEWER_DISPATCHER}'
+PID_FILE=".claude/review-loop-child.pid"
+TRACKED_PID="\$\$"
+write_pid() {
+  local pid="\$1"
+  local temp_file="\$PID_FILE.tmp.\$\$"
+  if printf '%s\n' "\$pid" > "\$temp_file"; then
+    mv "\$temp_file" "\$PID_FILE"
+  else
+    rm -f "\$temp_file"
+  fi
+}
+clear_pid() {
+  if [ -f "\$PID_FILE" ] && [ "\$(cat "\$PID_FILE" 2>/dev/null || true)" = "\$TRACKED_PID" ]; then
+    rm -f "\$PID_FILE"
+  fi
+}
+trap clear_pid EXIT
+write_pid "\$TRACKED_PID"
 if [ ! -f "\$PROMPT_FILE" ]; then
   echo "ERROR: prompt file missing: \$PROMPT_FILE" >&2
   exit 1
@@ -617,19 +661,36 @@ fi
 log "Starting \$REVIEWER review"
 START_TIME=\$(date +%s)
 
-"\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE"
-REVIEWER_EXIT=\$?
+"\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE" &
+REVIEWER_PID=\$!
+TRACKED_PID="\$REVIEWER_PID"
+write_pid "\$TRACKED_PID"
+if wait "\$REVIEWER_PID"; then
+  REVIEWER_EXIT=0
+else
+  REVIEWER_EXIT=\$?
+fi
 
 ELAPSED=\$(( \$(date +%s) - START_TIME ))
 log "\$REVIEWER finished (exit=\$REVIEWER_EXIT, elapsed=\${ELAPSED}s)"
 exit \$REVIEWER_EXIT
 RUNNER_EOF
     chmod +x "$RUNNER_SCRIPT"
-
     # Keep reviewer output out of stdout; the hook must emit one JSON decision.
     run_review() {
-      "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1
+      "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
+      local runner_pid=$!
+      local runner_status
+      write_child_pid "$runner_pid"
+      if wait "$runner_pid"; then
+        runner_status=0
+      else
+        runner_status=$?
+      fi
+      clear_child_pid "$runner_pid"
+      return "$runner_status"
     }
+
 
     REVIEW_START_TIME=$(date +%s)
     if run_review; then
