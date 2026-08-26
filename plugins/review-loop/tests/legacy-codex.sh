@@ -62,6 +62,10 @@ fi
 grep -q "REVIEWER='codex'" "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 grep -q 'reviews/20260826-113800-abcdef/review-1.md' \
   "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+grep -Fq 'The first line of the consolidated review file MUST be exactly one of these two lines:' \
+  "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+grep -Fxq 'VERDICT: PASS' "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+grep -Fxq 'VERDICT: FAIL' "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
 jq -e '
   .phase == "addressing"
   and (.reviewer // "codex") == "codex"

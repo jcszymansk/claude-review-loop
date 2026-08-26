@@ -174,6 +174,10 @@ You are orchestrating a thorough, independent code review of recent changes in t
 Use multi-agent to run the following review agents IN PARALLEL. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
 
 IMPORTANT: Spawn one agent per review path below. Wait for all agents to finish. Then deduplicate overlapping findings and write the consolidated review to: ${REVIEW_FILE}
+The first line of the consolidated review file MUST be exactly one of these two lines:
+VERDICT: PASS
+VERDICT: FAIL
+
 
 PREAMBLE_EOF
 
