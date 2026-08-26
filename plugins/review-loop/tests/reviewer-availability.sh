@@ -222,4 +222,11 @@ if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FIL
   exit 1
 fi
 
+cancel_command="$SCRIPT_DIR/../commands/cancel-review.md"
+if grep -Eq '^[[:space:]]*rm .*reviews/' "$cancel_command" ||
+  ! grep -Fq 'Leave `reviews/<review_id>/` untouched.' "$cancel_command"; then
+  printf 'FAIL: cancellation instructions do not preserve review history\n' >&2
+  exit 1
+fi
+
 printf 'reviewer availability tests passed\n'
