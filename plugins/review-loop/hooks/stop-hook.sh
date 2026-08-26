@@ -35,6 +35,12 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 
 # Consume stdin (hook input JSON) — must read to avoid broken pipe
 HOOK_INPUT=$(cat)
+if [ "${REVIEW_LOOP_CORRECTION:-}" = "1" ]; then
+  log "Allowing correction session to exit without re-entering the review loop"
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
+
 
 STATE_FILE=".claude/review-loop.local.json"
 cleanup_runtime_files() {
@@ -408,7 +414,7 @@ transition_phase() {
   log "Phase transitioned to: $new_phase"
   return 0
 }
-# ── Start a fresh correction session ───────────────────────────────────────
+# ── Start a fresh interactive correction session ───────────────────────────
 start_correction_session() {
   local correction_prompt
   local correction_status
@@ -424,19 +430,23 @@ codebase, implement the fixes you agree with, and note any skipped findings.
 Write the correction summary to ${SUMMARY_FILE}.
 
 Do not modify the review file or run the reviewer. Stop after the correction
-summary is written so the interactive session can run the reviewer again.
+summary is written so the original session can run the reviewer again.
 CORRECTION_EOF
 )
 
-  log "Starting fresh Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
-  if claude --bare -p --dangerously-skip-permissions "$correction_prompt" >>"$LOG_FILE" 2>&1; then
-    log "Fresh Claude correction session finished (review_id=$REVIEW_ID, round=$ROUND)"
-    return 0
+  log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
+  if [ -t 0 ] && [ -t 1 ]; then
+    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt"
+    correction_status=$?
   else
+    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" </dev/null >>"$LOG_FILE" 2>&1
     correction_status=$?
   fi
-
-  log "ERROR: fresh Claude correction session failed (review_id=$REVIEW_ID, round=$ROUND, exit=$correction_status)"
+  if [ "$correction_status" -eq 0 ]; then
+    log "Fresh interactive Claude correction session finished (review_id=$REVIEW_ID, round=$ROUND)"
+  else
+    log "ERROR: fresh interactive Claude correction session failed (review_id=$REVIEW_ID, round=$ROUND, exit=$correction_status)"
+  fi
   return "$correction_status"
 }
 
@@ -574,7 +584,7 @@ RUNNER_EOF
     fi
 
     if [ -n "$CORRECTION_STATUS" ]; then
-      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}. A fresh headless Claude correction session ${CORRECTION_STATUS}.
+      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}. A fresh interactive Claude correction session ${CORRECTION_STATUS}.
 
 Read ${REVIEW_FILE}, verify its findings, address the agreed items, write ${SUMMARY_FILE}, then run the reviewer again:
 \`\`\`

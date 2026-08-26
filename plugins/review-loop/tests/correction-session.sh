@@ -12,6 +12,8 @@ STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.json"
 REVIEW_FILE="$PROJECT_DIR/reviews/$REVIEW_ID/review-1.md"
 CLAUDE_ARGS_FILE="$TMP_DIR/claude-args"
 CLAUDE_PROMPT_FILE="$TMP_DIR/claude-prompt"
+CLAUDE_ENV_FILE="$TMP_DIR/claude-env"
+CLAUDECODE_FILE="$TMP_DIR/claudecode"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -35,6 +37,8 @@ cat > "$BIN_DIR/claude" <<'CLAUDE_EOF'
 #!/usr/bin/env bash
 printf '%s' "$*" > "$FAKE_CLAUDE_ARGS_FILE"
 printf '%s' "${!#}" > "$FAKE_CLAUDE_PROMPT_FILE"
+printf '%s' "${REVIEW_LOOP_CORRECTION:-}" > "$FAKE_CLAUDE_ENV_FILE"
+printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_FILE"
 CLAUDE_EOF
 chmod +x "$BIN_DIR/claude"
 
@@ -59,6 +63,9 @@ hook_output=$(
     FAKE_REVIEW_FILE="$REVIEW_FILE" \
     FAKE_CLAUDE_ARGS_FILE="$CLAUDE_ARGS_FILE" \
     FAKE_CLAUDE_PROMPT_FILE="$CLAUDE_PROMPT_FILE" \
+    FAKE_CLAUDE_ENV_FILE="$CLAUDE_ENV_FILE" \
+    FAKE_CLAUDECODE_FILE="$CLAUDECODE_FILE" \
+    CLAUDECODE=parent-marker \
     "$HOOK" <<< '{}'
 )
 
@@ -72,9 +79,15 @@ fi
 
 claude_args=$(cat "$CLAUDE_ARGS_FILE")
 case "$claude_args" in
-  *"--bare -p --dangerously-skip-permissions"*) ;;
+  *"--dangerously-skip-permissions"*) ;;
   *)
-    printf 'FAIL: correction session did not use headless safe flags: %s\n' "$claude_args" >&2
+    printf 'FAIL: correction session did not use interactive permission flags: %s\n' "$claude_args" >&2
+    exit 1
+    ;;
+esac
+case "$claude_args" in
+  *" -p "*|*"--bare"*)
+    printf 'FAIL: first correction session was not interactive: %s\n' "$claude_args" >&2
     exit 1
     ;;
 esac
@@ -103,11 +116,35 @@ case "$claude_prompt" in
 esac
 
 case "$(cat "$PROJECT_DIR/.claude/review-loop.log")" in
-  *"Fresh Claude correction session finished"*) ;;
+  *"Fresh interactive Claude correction session finished"*) ;;
   *)
     printf 'FAIL: correction session completion was not logged\n' >&2
     exit 1
     ;;
 esac
+
+if [ "$(cat "$CLAUDE_ENV_FILE")" != "1" ]; then
+  printf 'FAIL: correction session did not set its recursion guard\n' >&2
+  exit 1
+fi
+if [ -s "$CLAUDECODE_FILE" ]; then
+  printf 'FAIL: correction session inherited CLAUDECODE\n' >&2
+  exit 1
+fi
+
+guard_output=$(
+  cd "$PROJECT_DIR"
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$BIN_DIR:$PATH" \
+    REVIEW_LOOP_CORRECTION=1 \
+    CLAUDECODE=parent-marker \
+    "$HOOK" <<< '{}'
+)
+jq -e '.decision == "approve"' <<< "$guard_output" >/dev/null
+if [ ! -f "$STATE_FILE" ]; then
+  printf 'FAIL: correction-session guard removed active state\n' >&2
+  exit 1
+fi
 
 printf 'correction session tests passed\n'
