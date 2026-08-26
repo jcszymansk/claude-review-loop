@@ -51,14 +51,19 @@ cat > "$STATE_FILE" <<STATE_EOF
   "started_at": "2026-08-26T12:34:56Z"
 }
 STATE_EOF
+expected_output=$'VERDICT: PASS\nstdout fallback'
 
 hook_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
 jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
+if [ "$(cat "$REVIEW_DIR/review-1.md")" != "$expected_output" ]; then
+  printf 'FAIL: stop hook did not run the configured reviewer\n' >&2
+  exit 1
+fi
 
 RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 REVIEW_FILE="$REVIEW_DIR/review-1.md"
 runner_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$RUNNER")
-expected_output=$'VERDICT: PASS\nstdout fallback'
+
 if [ "$runner_output" != "$expected_output" ]; then
   printf 'FAIL: runner did not stream reviewer output unchanged: %s\n' "$runner_output" >&2
   exit 1
@@ -72,6 +77,7 @@ jq '.phase = "task" | .round = 2' "$STATE_FILE" > "$STATE_FILE.tmp"
 mv "$STATE_FILE.tmp" "$STATE_FILE"
 hook_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
 jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
+rm -f "$REVIEW_DIR/review-2.md"
 
 RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 REVIEW_FILE="$REVIEW_DIR/review-2.md"
@@ -89,6 +95,7 @@ jq '.phase = "task" | .round = 3' "$STATE_FILE" > "$STATE_FILE.tmp"
 mv "$STATE_FILE.tmp" "$STATE_FILE"
 hook_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
 jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
+rm -f "$REVIEW_DIR/review-3.md"
 
 RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 REVIEW_FILE="$REVIEW_DIR/review-3.md"

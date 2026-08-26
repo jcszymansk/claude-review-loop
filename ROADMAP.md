@@ -97,7 +97,7 @@ Only `PASS` means the changes were accepted.
 
 Add the review, correction, and re-review loop.
 
-- [ ] Run the configured reviewer for the current round.
+- [x] Run the configured reviewer for the current round.
 - [ ] Verify that the reviewer produced a usable artifact.
 - [ ] Parse the verdict.
 - [ ] Stop immediately on `PASS`.

@@ -1,5 +1,5 @@
 {
-  "description": "Review loop stop hook: runs the selected reviewer after task completion, then has Claude address feedback",
+  "description": "Review loop stop hook: runs the selected reviewer for the current round, then has Claude address feedback",
   "hooks": {
     "Stop": [
       {
@@ -7,8 +7,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh",
-            "timeout": 30,
-            "statusMessage": "Review loop: checking phase..."
+            "timeout": 600,
+            "statusMessage": "Review loop: running reviewer..."
           }
         ]
       }

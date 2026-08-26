@@ -4,9 +4,8 @@
 
 A Claude Code plugin that creates a two-phase review loop:
 1. Claude implements a task
-2. Stop hook prepares a configured reviewer runner and blocks Claude
-3. Claude executes the runner script via Bash (reviewer output streams to user)
-4. Claude reads the review and addresses feedback
+2. Stop hook prepares and runs a configured reviewer
+3. Claude reads the review and addresses feedback
 
 
 ## Conventions
@@ -16,7 +15,7 @@ A Claude Code plugin that creates a two-phase review loop:
 - Fail-open: on any error, approve exit rather than trapping the user
 - State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at` — clean up runtime state on exit, but never remove `reviews/<review_id>/` history
 - Each loop gets a validated `reviews/<review_id>/` directory containing `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome
-- Reviewers run via provider-specific runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) that Claude executes via Bash — output streams directly to the user
+- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing

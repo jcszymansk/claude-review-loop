@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Review Loop — Stop Hook
 #
-# Two-phase lifecycle:
-#   Phase 1 (task):       Claude finishes work → hook prepares a reviewer runner → blocks exit
-#   Phase 2 (addressing): Claude runs the reviewer, addresses feedback → hook verifies review exists → allows exit
+#   Phase 1 (task):       Claude finishes work → hook runs the configured reviewer → blocks exit
+#   Phase 2 (addressing): Claude addresses feedback → hook verifies review exists → allows exit
 #
 # On any error, default to allowing exit (never trap the user in a broken loop).
 #
@@ -405,9 +404,9 @@ transition_phase() {
 
 case "$PHASE" in
   task)
-    # ── Phase 1 → 2: Prepare a reviewer for Claude to run directly ─────
-    # The hook writes the prompt and runner, then Claude executes the
-    # reviewer via Bash so its output streams to the user.
+    # ── Phase 1 → 2: Run the configured reviewer ──────────────────────────
+    # The hook writes the prompt and runner, then executes the reviewer before
+    # blocking so Claude can address its findings.
     if ! mkdir -p "$REVIEW_DIR"; then
       log "ERROR: failed to create review directory: $REVIEW_DIR"
       cleanup_runtime_files
@@ -483,6 +482,27 @@ exit \$REVIEWER_EXIT
 RUNNER_EOF
     chmod +x "$RUNNER_SCRIPT"
 
+    # Run the current round before asking Claude to address its findings.
+    run_review() {
+      if [ -e /dev/tty ] && { : >/dev/tty; } 2>/dev/null; then
+        "$RUNNER_SCRIPT" </dev/null >/dev/tty 2>&1
+      else
+        "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1
+      fi
+    }
+
+    REVIEW_START_TIME=$(date +%s)
+    if run_review; then
+      REVIEWER_EXIT=0
+    else
+      REVIEWER_EXIT=$?
+    fi
+    REVIEW_ELAPSED=$(( $(date +%s) - REVIEW_START_TIME ))
+    log "${REVIEWER} review finished (exit=$REVIEWER_EXIT, elapsed=${REVIEW_ELAPSED}s, review_id=$REVIEW_ID, round=$ROUND)"
+    if [ "$REVIEWER_EXIT" -ne 0 ]; then
+      log "ERROR: ${REVIEWER} review failed for round $ROUND"
+    fi
+
     # Transition to addressing phase — fail-open if this breaks, otherwise
     # a failed transition leaves phase=task and the next stop re-runs everything.
     if ! transition_phase "addressing"; then
@@ -492,16 +512,15 @@ RUNNER_EOF
       exit 0
     fi
 
-    log "Prepared ${REVIEWER} review for Claude to execute (review_id=$REVIEW_ID)"
+    log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
+    if [ "$REVIEWER_EXIT" -eq 0 ]; then
+      REVIEW_STATUS="completed"
+    else
+      REVIEW_STATUS="exited with status ${REVIEWER_EXIT}; rerun it if the review artifact is missing or malformed"
+    fi
+    REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
 
-    REASON="Phase 1 complete. Now run the ${REVIEWER} review so you can see its progress.
-
-Execute this command (use a 600000ms timeout since reviews can take several minutes):
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`
-
-After the review completes, read ${REVIEW_FILE} and address the findings:
+Read ${REVIEW_FILE} and address the findings:
 1. Read the review carefully
 2. For each item, independently decide if you agree
 3. For items you AGREE with: implement the fix
@@ -510,13 +529,18 @@ After the review completes, read ${REVIEW_FILE} and address the findings:
 6. Write a summary of the fixes, skipped findings, and verification results to ${SUMMARY_FILE}
 7. When done addressing all relevant items, you may stop
 
+If ${REVIEW_FILE} is missing or malformed, rerun the reviewer with a 600000ms timeout:
+\`\`\`
+bash ${RUNNER_SCRIPT}
+\`\`\`
+
 Use your own judgment. Do not blindly accept every suggestion."
 
-    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Run ${REVIEWER} review and address feedback"
+    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback"
 
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
-      || printf '{"decision":"block","reason":"Phase 1 complete. Run: bash %s then address the review.","systemMessage":"%s"}\n' "$RUNNER_SCRIPT" "$SYS_MSG"
+      || printf '{"decision":"block","reason":"Phase 1 complete. Read the review and address the findings.","systemMessage":"%s"}\n' "$SYS_MSG"
     ;;
 
   addressing)

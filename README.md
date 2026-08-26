@@ -7,7 +7,7 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
 1. **Task phase**: You describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: The stop hook prepares a runner for the selected reviewer and blocks exit. Claude runs the reviewer directly, reads `review-1.md`, addresses the findings, and writes `summary-1.md`. A missing or malformed verdict is treated as `FAIL`.
+2. **Review phase**: The stop hook prepares and runs the selected reviewer for the current round, then blocks exit. Claude reads `review-1.md`, addresses the findings, and writes `summary-1.md`. A missing or malformed verdict is treated as `FAIL`.
 
 
 The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
@@ -83,8 +83,8 @@ claude plugin update review-loop@hamel-review
 
 Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` with task context; before the first stop, Claude replaces it with an implementation summary. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
-2. Blocks Claude's exit with instructions to run the review
-3. Claude runs the generated reviewer script and sees its output
+2. Runs the reviewer for round 1, streaming output to the terminal when available
+3. Blocks Claude's exit so it can read the review and address the findings
 4. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
 5. Claude reads the review and addresses the findings. A missing or malformed verdict is treated as `FAIL` and keeps the loop blocked; after a valid verdict, Claude writes `summary-1.md` and stops
 
@@ -100,7 +100,7 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
-2. If in `task` phase: writes a numbered reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
+2. If in `task` phase: writes a numbered reviewer runner and prompt file, runs the configured reviewer for the current round, transitions to `addressing`, and blocks exit so Claude can address the review
 3. If in `addressing` phase: verifies the current numbered review has a valid verdict. Missing or malformed verdicts are treated as `FAIL` and keep the loop blocked; a valid review then allows exit and cleans up
 
 The hook removes runtime state and generated runner files only. It never removes `reviews/<id>/`, so summaries and review output remain available after cleanup. `/cancel-review` follows the same rule; future round-limit termination must preserve the directory as well.
@@ -131,7 +131,7 @@ claude-review-loop/
 
 ## Configuration
 
-The stop hook timeout is set to 30 seconds in `hooks/hooks.json`. The hook itself is fast (it only writes files and returns a block decision); the selected reviewer runs separately via Claude's Bash tool.
+The stop hook timeout is set to 600 seconds in `hooks/hooks.json` because reviewer CLIs can take several minutes. The hook runs the selected reviewer directly; its output goes to the terminal when available and to `.claude/review-loop.log` otherwise.
 
 ### Reviewer selection
 
