@@ -20,7 +20,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$PROJECT_DIR/.claude" "$HOME_DIR/.codex" "$BIN_DIR" "$PROJECT_DIR/reviews/$REVIEW_ID"
+NO_CLAUDE_BIN_DIR="$TMP_DIR/no-claude-bin"
+FALLBACK_PROJECT_DIR="$TMP_DIR/fallback-project"
+FALLBACK_REVIEW_ID="20260826-123456-fedcba"
+FALLBACK_STATE_FILE="$FALLBACK_PROJECT_DIR/.claude/review-loop.local.json"
+FALLBACK_REVIEW_FILE="$FALLBACK_PROJECT_DIR/reviews/$FALLBACK_REVIEW_ID/review-1.md"
+mkdir -p "$PROJECT_DIR/.claude" "$HOME_DIR/.codex" "$BIN_DIR" "$PROJECT_DIR/reviews/$REVIEW_ID" \
+  "$NO_CLAUDE_BIN_DIR" "$FALLBACK_PROJECT_DIR/.claude" "$FALLBACK_PROJECT_DIR/reviews/$FALLBACK_REVIEW_ID"
 
 cat > "$HOME_DIR/.codex/config.toml" <<'CONFIG_EOF'
 [features]
@@ -40,6 +46,7 @@ printf '%s' "${!#}" > "$FAKE_CLAUDE_PROMPT_FILE"
 printf '%s' "${REVIEW_LOOP_CORRECTION:-}" > "$FAKE_CLAUDE_ENV_FILE"
 printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_FILE"
 CLAUDE_EOF
+ln -s "$BIN_DIR/codex" "$NO_CLAUDE_BIN_DIR/codex"
 chmod +x "$BIN_DIR/claude"
 
 cat > "$STATE_FILE" <<STATE_EOF
@@ -105,6 +112,20 @@ case "$claude_prompt" in
     ;;
 esac
 case "$claude_prompt" in
+  *"review-*.md"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted review history glob\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"summary-*.md"*) ;;
+  *)
+    printf 'FAIL: correction prompt omitted summary history glob\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
   *"full round history"*) ;;
   *)
     printf 'FAIL: correction prompt omitted full round history instruction\n' >&2
@@ -164,5 +185,34 @@ if [ ! -f "$STATE_FILE" ]; then
   printf 'FAIL: correction-session guard removed active state\n' >&2
   exit 1
 fi
+
+printf '# Review Loop Task Context\n\nfallback task\n' > "$FALLBACK_PROJECT_DIR/reviews/$FALLBACK_REVIEW_ID/summary-0.md"
+cat > "$FALLBACK_STATE_FILE" <<STATE_EOF
+{
+  "active": true,
+  "phase": "task",
+  "reviewer": "codex",
+  "task": "fallback correction task",
+  "round": 1,
+  "max_rounds": 3,
+  "review_id": "$FALLBACK_REVIEW_ID",
+  "started_at": "2026-08-26T12:34:56Z"
+}
+STATE_EOF
+
+fallback_output=$(
+  cd "$FALLBACK_PROJECT_DIR"
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$NO_CLAUDE_BIN_DIR:$PATH" \
+    FAKE_REVIEW_FILE="$FALLBACK_REVIEW_FILE" \
+    "$HOOK" <<< '{}'
+)
+jq -e '
+  .decision == "block"
+  and (.reason | contains("full round history"))
+  and (.reason | contains("review-*.md"))
+  and (.reason | contains("summary-*.md"))
+' <<< "$fallback_output" >/dev/null
 
 printf 'correction session tests passed\n'

@@ -427,9 +427,9 @@ You are a fresh Claude correction session for review loop ${REVIEW_ID}.
 Original task:
 ${TASK}
 
-Before changing any code, read the full round history in ${REVIEW_DIR},
-including ${REVIEW_DIR}/summary-0.md, the current review, and every review
-and correction summary artifact from earlier rounds.
+Before changing any code, read the full round history in ${REVIEW_DIR}.
+Read every review-*.md and summary-*.md file in that directory, including
+${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
 
 Read the review at ${REVIEW_FILE}. For each finding, verify it against the
 codebase, implement the fixes you agree with, and note any skipped findings.
@@ -601,12 +601,20 @@ RUNNER_EOF
     if [ -n "$CORRECTION_STATUS" ]; then
       REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}. A fresh interactive Claude correction session ${CORRECTION_STATUS}.
 
+Before changing any code, read the full round history in ${REVIEW_DIR}.
+Read every review-*.md and summary-*.md file in that directory, including
+${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
+
 Read ${REVIEW_FILE}, verify its findings, address the agreed items, write ${SUMMARY_FILE}, then run the reviewer again:
 \`\`\`
 bash ${RUNNER_SCRIPT}
 \`\`\`"
     else
       REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
+
+Before changing any code, read the full round history in ${REVIEW_DIR}.
+Read every review-*.md and summary-*.md file in that directory, including
+${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
 
 Read ${REVIEW_FILE} and address the findings:
 1. Read the review carefully
@@ -642,8 +650,13 @@ Use your own judgment. Do not blindly accept every suggestion."
           printf '{"decision":"approve"}\n'
         else
           log "Review verdict: FAIL (review_id=$REVIEW_ID)"
-          REASON="The review verdict is FAIL. Address the findings, write the correction summary, then run the reviewer again:
+          REASON="The review verdict is FAIL.
 
+Before changing any code, read the full round history in ${REVIEW_DIR}.
+Read every review-*.md and summary-*.md file in that directory, including
+${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
+
+Address the findings, write the correction summary, then run the reviewer again:
 \`\`\`
 bash ${RUNNER_SCRIPT}
 \`\`\`"
