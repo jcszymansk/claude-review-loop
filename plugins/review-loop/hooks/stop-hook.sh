@@ -60,8 +60,8 @@ if ! jq -e '
   and (.phase | type == "string")
   and ((has("reviewer") | not) or (.reviewer | type == "string"))
   and (.task | type == "string")
-  and (.round | type == "number")
-  and (.max_rounds | type == "number")
+  and (.round | type == "number" and . >= 0)
+  and (.max_rounds | type == "number" and . >= 1)
   and (.review_id | type == "string")
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"

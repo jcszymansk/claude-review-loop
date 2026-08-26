@@ -126,4 +126,20 @@ if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FIL
   exit 1
 fi
 
+jq -n '{
+  active: true,
+  phase: "task",
+  reviewer: "codex",
+  task: "review the current changes",
+  round: -1,
+  max_rounds: 0,
+  review_id: "20260826-123456-abcdef",
+  started_at: "2026-08-26T12:34:56Z"
+}' > "$STATE_FILE"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
+  printf 'FAIL: invalid state numeric bounds were not failed open: %s\n' "$output" >&2
+  exit 1
+fi
+
 printf 'reviewer availability tests passed\n'
