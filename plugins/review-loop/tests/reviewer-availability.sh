@@ -103,14 +103,47 @@ if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FIL
   exit 1
 fi
 
-: > "$REVIEW_DIR/review-1.md"
-output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
-if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
-  printf 'FAIL: addressing path did not approve with a review: %s\n' "$output" >&2
-  exit 1
-fi
+assert_review_decision() {
+  local content="$1"
+  local expected_decision="$2"
+  local output
+
+  write_addressing_state
+  printf '%s\n' "$content" > "$REVIEW_DIR/review-1.md"
+  output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+
+  if [ "$expected_decision" = "block" ]; then
+    if ! jq -e --arg decision "$expected_decision" \
+      '.decision == $decision and (.reason | contains("FAIL"))' \
+      <<< "$output" >/dev/null; then
+      printf 'FAIL: rejected verdict produced the wrong decision: %s\n' "$output" >&2
+      exit 1
+    fi
+  elif ! jq -e --arg decision "$expected_decision" \
+    '.decision == $decision' <<< "$output" >/dev/null; then
+    printf 'FAIL: accepted verdict produced the wrong decision: %s\n' "$output" >&2
+    exit 1
+  fi
+
+  if [ "$expected_decision" = "approve" ] && [ -f "$STATE_FILE" ]; then
+    printf 'FAIL: accepted verdict left active state behind\n' >&2
+    exit 1
+  fi
+  if [ "$expected_decision" = "block" ] && [ ! -f "$STATE_FILE" ]; then
+    printf 'FAIL: rejected verdict removed active state\n' >&2
+    exit 1
+  fi
+}
+
+assert_review_decision "" block
+assert_review_decision "Review complete without a verdict" block
+assert_review_decision "verdict: PASS" block
+assert_review_decision "VERDICT: PASS " block
+assert_review_decision "VERDICT: FAIL" approve
+assert_review_decision $'VERDICT: PASS\nNo findings.' approve
+
 if [ ! -d "$REVIEW_DIR" ]; then
-  printf 'FAIL: review loop directory was removed with the state: %s\n' "$output" >&2
+  printf 'FAIL: review loop directory was removed with the state\n' >&2
   exit 1
 fi
 

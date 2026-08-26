@@ -88,8 +88,9 @@ Before your first stop, read `.claude/review-loop.local.json` to get the review 
 After the stop hook prepares the review:
 1. Run the generated reviewer script with a 600000ms timeout
 2. Read `reviews/<review_id>/review-1.md` and address the findings
-3. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
-4. Stop after the correction summary is complete
+3. If the first line is absent or malformed, treat the verdict as `FAIL` and run the reviewer again
+4. Write the fixes, skipped findings, and verification results to `reviews/<review_id>/summary-1.md`
+5. Stop after the correction summary is complete
 
 The loop directory is kept after cleanup. Later rounds use the same directory with `review-<round>.md` and `summary-<round>.md`.
 

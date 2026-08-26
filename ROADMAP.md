@@ -78,7 +78,7 @@ Replace ad-hoc phase parsing with explicit per-loop state and artifacts.
 - [x] Create one directory per loop.
 - [x] Store `summary-0.md`, `review-1.md`, `summary-1.md`, and later rounds together.
 - [x] Require the first review line to be exactly `VERDICT: PASS` or `VERDICT: FAIL`.
-- [ ] Treat an absent or malformed verdict as `FAIL`.
+- [x] Treat an absent or malformed verdict as `FAIL`.
 - [ ] Make the runner capture the review result into the round artifact where possible.
 - [ ] Keep all review artifacts when the loop reaches `PASS`, `MAX_ROUNDS_REACHED`, `REVIEWER_ERROR`, or `CANCELLED`.
 

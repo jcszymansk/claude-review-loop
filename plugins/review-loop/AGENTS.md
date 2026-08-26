@@ -37,4 +37,4 @@ A Claude Code plugin that creates a two-phase review loop:
 - Test with Codex unavailable (should block with install instructions)
 - Test with malformed state files (should fail-open)
 - Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
-- Test addressing phase blocks when review file is missing, approves when it exists
+- Test addressing phase blocks when the review file or verdict is missing or malformed, and approves when a valid verdict exists

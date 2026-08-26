@@ -74,6 +74,29 @@ fi
 parse_field() {
   jq -r --arg field "$1" '.[$field]' "$STATE_FILE"
 }
+# Parse a review verdict, treating missing or malformed verdicts as FAIL
+parse_verdict() {
+  local review_file="$1"
+  local first_line
+
+  first_line=$(head -n 1 "$review_file" 2>/dev/null || true)
+  case "$first_line" in
+    "VERDICT: PASS")
+      printf 'PASS\n'
+      return 0
+      ;;
+    "VERDICT: FAIL")
+      printf 'FAIL\n'
+      return 0
+      ;;
+    *)
+      printf 'FAIL\n'
+      return 1
+      ;;
+  esac
+}
+
+
 
 if ! ACTIVE=$(parse_field "active") ||
   ! PHASE=$(parse_field "phase") ||
@@ -491,13 +514,25 @@ Use your own judgment. Do not blindly accept every suggestion."
     ;;
 
   addressing)
-    # ── Phase 2: verify review was actually produced before allowing exit ──
+    # ── Phase 2: verify review verdict before allowing exit ───────────────
     if [ -f "$REVIEW_FILE" ]; then
-      # Review exists — success
-      log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER)"
-      rm -f "$STATE_FILE" .claude/review-loop.lock
-      cleanup_generated_files
-      printf '{"decision":"approve"}\n'
+      if VERDICT=$(parse_verdict "$REVIEW_FILE"); then
+        log "Review loop complete (review_id=$REVIEW_ID, reviewer=$REVIEWER, verdict=$VERDICT)"
+        rm -f "$STATE_FILE" .claude/review-loop.lock
+        cleanup_generated_files
+        printf '{"decision":"approve"}\n'
+      else
+        log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"
+        REASON="The review verdict is FAIL because it is absent or malformed. Treat it as FAIL, correct the review output, then run the reviewer again:
+
+\`\`\`
+bash ${RUNNER_SCRIPT}
+\`\`\`"
+        SYS_MSG="Review Loop [${REVIEW_ID}] — Verdict: FAIL"
+        jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
+          '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+          || printf '{"decision":"block","reason":"The review verdict is FAIL because it is absent or malformed.","systemMessage":"Review Loop verdict: FAIL"}\n'
+      fi
     elif [ -f "$RUNNER_SCRIPT" ]; then
       # Runner script exists but review doesn't — check retry limit
       RETRY_FILE=".claude/review-loop-retries"

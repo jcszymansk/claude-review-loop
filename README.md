@@ -7,7 +7,7 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
 1. **Task phase**: You describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: The stop hook prepares a runner for the selected reviewer and blocks exit. Claude runs the reviewer directly, reads `review-1.md`, addresses the findings, and writes `summary-1.md`.
+2. **Review phase**: The stop hook prepares a runner for the selected reviewer and blocks exit. Claude runs the reviewer directly, reads `review-1.md`, addresses the findings, and writes `summary-1.md`. A missing or malformed verdict is treated as `FAIL`.
 
 
 The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
@@ -86,7 +86,7 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 2. Blocks Claude's exit with instructions to run the review
 3. Claude runs the generated reviewer script and sees its output
 4. The reviewer writes findings to `reviews/<id>/review-1.md`
-5. Claude reads the review, addresses the findings, writes `reviews/<id>/summary-1.md`, then stops
+5. Claude reads the review and addresses the findings. A missing or malformed verdict is treated as `FAIL` and keeps the loop blocked; after a valid verdict, Claude writes `summary-1.md` and stops
 
 
 ### Cancel a review loop
@@ -101,7 +101,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a numbered reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
-3. If in `addressing` phase: verifies the current numbered review, then allows exit and cleans up
+3. If in `addressing` phase: verifies the current numbered review has a valid verdict. Missing or malformed verdicts are treated as `FAIL` and keep the loop blocked; a valid review then allows exit and cleans up
 
 State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/` containing `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs.
 
