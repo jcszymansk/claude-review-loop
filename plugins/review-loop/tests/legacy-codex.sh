@@ -38,7 +38,7 @@ cat > "$PROJECT_DIR/.claude/review-loop.local.json" <<'STATE_EOF'
 {
   "active": true,
   "phase": "task",
-  "task": "preserve the existing Codex workflow",
+  "task": "preserve the existing Codex workflow (__TASK__)",
   "round": 1,
   "max_rounds": 3,
   "review_id": "20260826-113800-abcdef",
@@ -62,6 +62,8 @@ fi
 grep -q "REVIEWER='codex'" "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 grep -q 'reviews/20260826-113800-abcdef/review-1.md' \
   "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+grep -Fxq 'preserve the existing Codex workflow (__TASK__)' \
+  "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
 grep -Fq 'The first line of the consolidated review file MUST be exactly one of these two lines:' \
   "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
 grep -Fxq 'VERDICT: PASS' "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
@@ -69,7 +71,7 @@ grep -Fxq 'VERDICT: FAIL' "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
 jq -e '
   .phase == "addressing"
   and (.reviewer // "codex") == "codex"
-  and .task == "preserve the existing Codex workflow"
+  and .task == "preserve the existing Codex workflow (__TASK__)"
   and .round == 1
   and .max_rounds == 3
 ' "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
@@ -86,6 +88,8 @@ case "$OUTPUT" in
     ;;
 esac
 grep -q 'reviews/20260826-113800-abcdef/review-2.md' \
+  "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
+grep -Fxq 'preserve the existing Codex workflow (__TASK__)' \
   "$PROJECT_DIR/.claude/review-loop-codex-prompt.txt"
 jq -e '.phase == "addressing" and .round == 2' \
   "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null

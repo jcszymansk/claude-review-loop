@@ -265,14 +265,8 @@ detect_browser_ui() {
 replace_prompt_placeholder() {
   local placeholder="$1"
   local replacement="$2"
-  local prefix
-  local suffix
 
-  while [[ "$template" == *"$placeholder"* ]]; do
-    prefix="${template%%"$placeholder"*}"
-    suffix="${template#*"$placeholder"}"
-    template="${prefix}${replacement}${suffix}"
-  done
+  template="${template//"$placeholder"/"$replacement"}"
 }
 render_prompt_template() {
   local template_file="$1"

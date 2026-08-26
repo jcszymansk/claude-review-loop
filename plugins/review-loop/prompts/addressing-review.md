@@ -1,5 +1,8 @@
 Phase 1 complete. The __REVIEWER__ review for round __ROUND__ __REVIEW_STATUS__.
 
+Original task:
+__TASK__
+
 Before changing any code, read the full round history in __REVIEW_DIR__.
 Read every review-*.md and summary-*.md file in that directory, including
 __REVIEW_DIR__/summary-0.md and __REVIEW_FILE__.

@@ -116,7 +116,7 @@ The initial implementation should remain interactive. Fresh headless Claude sess
 Combine the useful prompt changes from the forks without forcing a pull-request workflow.
 
 - [x] Move prompt templates into separate Markdown files.
-- [ ] Include the original task in every review.
+- [x] Include the original task in every review.
 - [ ] Include previous reviews and correction summaries in later rounds.
 - [ ] Review the current branch diff by default.
 - [ ] Add optional GitHub and Gitea PR scoping.

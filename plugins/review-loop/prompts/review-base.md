@@ -1,5 +1,10 @@
 You are orchestrating a thorough, independent code review of recent changes in this repository.
 
+Original task:
+__TASK__
+
+Review the changes against the original task and flag missing or incorrect requested behavior.
+
 Use multi-agent to run the following review agents IN PARALLEL. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
 
 IMPORTANT: Spawn one agent per review path below. Wait for all agents to finish. Then deduplicate overlapping findings and write the consolidated review to: __REVIEW_FILE__
