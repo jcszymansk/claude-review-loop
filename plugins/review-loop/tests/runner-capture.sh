@@ -30,6 +30,9 @@ if [ -n "${FAKE_REVIEW_FILE:-}" ]; then
   printf 'provider progress\n'
 elif [ "${FAKE_REVIEW_MODE:-}" = malformed ]; then
   printf 'review output without a verdict\n'
+elif [ "${FAKE_REVIEW_MODE:-}" = nonzero ]; then
+  printf 'VERDICT: PASS\nstdout fallback\n'
+  exit 7
 else
   printf 'VERDICT: PASS\nstdout fallback\n'
 fi
@@ -43,7 +46,7 @@ cat > "$STATE_FILE" <<STATE_EOF
   "reviewer": "codex",
   "task": "capture the reviewer result",
   "round": 1,
-  "max_rounds": 3,
+  "max_rounds": 4,
   "review_id": "$REVIEW_ID",
   "started_at": "2026-08-26T12:34:56Z"
 }
@@ -108,6 +111,29 @@ jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
 ) >/dev/null
 if [ "$(cat "$REVIEW_FILE")" != "$expected_output" ]; then
   printf 'FAIL: runner did not replace a malformed fallback artifact\n' >&2
+  exit 1
+fi
+
+jq '.phase = "task" | .round = 4' "$STATE_FILE" > "$STATE_FILE.tmp"
+mv "$STATE_FILE.tmp" "$STATE_FILE"
+hook_output=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
+jq -e '.decision == "block"' <<< "$hook_output" >/dev/null
+
+RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
+REVIEW_FILE="$REVIEW_DIR/review-4.md"
+set +e
+(
+  cd "$PROJECT_DIR"
+  env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_REVIEW_MODE=nonzero "$RUNNER"
+) >/dev/null
+runner_status=$?
+set -e
+if [ "$runner_status" -ne 7 ]; then
+  printf 'FAIL: runner masked reviewer exit status: %s\n' "$runner_status" >&2
+  exit 1
+fi
+if [ "$(cat "$REVIEW_FILE")" != "$expected_output" ]; then
+  printf 'FAIL: runner did not capture output from a failed reviewer\n' >&2
   exit 1
 fi
 
