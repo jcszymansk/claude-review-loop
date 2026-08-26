@@ -61,7 +61,7 @@ Extract reviewer-specific behavior from `stop-hook.sh` into a small dispatch lay
 - [x] Add reviewer-specific availability checks and flags.
 - [x] Add the Cursor headless invocation.
 - [x] Keep Codex behavior working without requiring a new configuration format.
-- [ ] Add tests for reviewer selection, precedence, missing CLIs, and malformed configuration.
+- [x] Add tests for reviewer selection, precedence, missing CLIs, and malformed configuration.
 
 Initial Cursor invocation target:
 

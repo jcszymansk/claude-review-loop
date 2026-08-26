@@ -30,6 +30,11 @@ resolve_with_environment() (
   cd "$PROJECT_DIR"
   env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=codex "$RESOLVER"
 )
+resolve_with_invalid_environment() (
+  cd "$PROJECT_DIR"
+  env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=unknown "$RESOLVER"
+)
+
 
 assert_output() {
   local name="$1"
@@ -73,6 +78,7 @@ assert_output "environment precedence" codex resolve_with_environment
 
 printf 'reviewer = "unknown"\n' > "$PROJECT_DIR/.review-loop.toml"
 assert_failure "unsupported project reviewer" "unsupported reviewer 'unknown'" resolve_with_xdg
+assert_failure "unsupported environment reviewer" "unsupported reviewer 'unknown'" resolve_with_invalid_environment
 
 printf 'review = "cursor"\n' > "$PROJECT_DIR/.review-loop.toml"
 assert_failure "malformed project config" "must define reviewer" resolve_with_xdg
