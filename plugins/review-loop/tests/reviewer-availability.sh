@@ -23,7 +23,7 @@ link_command() {
   ln -s "$(command -v "$name")" "$BIN_DIR/$name"
 }
 
-for command_name in awk bash cat date dirname grep head jq mkdir rm sed; do
+for command_name in awk bash cat chmod date dirname grep head jq mkdir mv rm sed tee; do
   link_command "$command_name"
 done
 
@@ -125,6 +125,13 @@ assert_missing_cli() {
 assert_missing_cli codex codex Codex 'npm install -g @openai/codex'
 assert_missing_cli gemini gemini Gemini 'npm install -g @google/gemini-cli'
 assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/install -fsS | bash'
+mkdir -p "$HOME_DIR/.codex"
+printf '[features]\nmulti_agent = true\n' > "$HOME_DIR/.codex/config.toml"
+cat > "$BIN_DIR/codex" <<'CODEX_EOF'
+#!/usr/bin/env bash
+printf 'review retry without a verdict\n'
+CODEX_EOF
+chmod +x "$BIN_DIR/codex"
 
 write_addressing_state
 mkdir -p "$REVIEW_DIR"
@@ -181,6 +188,7 @@ write_correction_summary
 assert_review_decision() {
   local content="$1"
   local expected_decision="$2"
+  local expected_reason="${3:-FAIL}"
   local output
 
   write_addressing_state
@@ -188,8 +196,8 @@ assert_review_decision() {
   output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 
   if [ "$expected_decision" = "block" ]; then
-    if ! jq -e --arg decision "$expected_decision" \
-      '.decision == $decision and (.reason | contains("FAIL"))' \
+    if ! jq -e --arg decision "$expected_decision" --arg reason "$expected_reason" \
+      '.decision == $decision and (.reason | contains($reason))' \
       <<< "$output" >/dev/null; then
       printf 'FAIL: rejected verdict produced the wrong decision: %s\n' "$output" >&2
       exit 1
@@ -214,7 +222,7 @@ assert_review_decision "" block
 assert_review_decision "Review complete without a verdict" block
 assert_review_decision "verdict: PASS" block
 assert_review_decision "VERDICT: PASS " block
-assert_review_decision "VERDICT: FAIL" block
+assert_review_decision "VERDICT: FAIL" block review
 assert_review_decision $'VERDICT: PASS\nNo findings.' approve
 
 if [ ! -d "$REVIEW_DIR" ]; then

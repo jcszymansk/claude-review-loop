@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Review Loop — Stop Hook
 #
-#   Phase 1 (task):       Claude finishes work → hook runs the configured reviewer → blocks exit
-#   Phase 2 (addressing): Claude addresses feedback → hook verifies review exists → allows exit
+#   Each round: task → reviewer → addressing → next round or terminal outcome
+#   A failed review advances automatically once its correction summary is complete
 #
 # On any error, default to allowing exit (never trap the user in a broken loop).
 #
@@ -50,6 +50,11 @@ cleanup_runtime_files() {
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
+STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
+case "$STOP_HOOK_SCRIPT" in
+  /*) ;;
+  *) STOP_HOOK_SCRIPT="$PWD/$STOP_HOOK_SCRIPT" ;;
+esac
 
 # No active loop → allow exit
 if [ ! -f "$STATE_FILE" ]; then
@@ -455,6 +460,32 @@ transition_phase() {
   log "Phase transitioned to: $new_phase"
   return 0
 }
+transition_to_next_round() {
+  local next_round="$1"
+  local TEMP_FILE="${STATE_FILE}.tmp.$$"
+
+  if ! jq --arg phase "task" --argjson round "$next_round" \
+    '.phase = $phase | .round = $round' "$STATE_FILE" > "$TEMP_FILE"; then
+    rm -f "$TEMP_FILE"
+    return 1
+  fi
+  if ! mv "$TEMP_FILE" "$STATE_FILE"; then
+    rm -f "$TEMP_FILE"
+    return 1
+  fi
+
+  local CHECK_PHASE
+  local CHECK_ROUND
+  CHECK_PHASE=$(parse_field "phase")
+  CHECK_ROUND=$(parse_field "round")
+  if [ "$CHECK_PHASE" != "task" ] || [ "$CHECK_ROUND" != "$next_round" ]; then
+    log "ERROR: round transition failed (expected=task/$next_round, got=$CHECK_PHASE/$CHECK_ROUND)"
+    return 1
+  fi
+  rm -f .claude/review-loop-retries
+  log "Advanced to review round: $next_round"
+  return 0
+}
 # ── Start a fresh interactive correction session ───────────────────────────
 start_correction_session() {
   local correction_prompt
@@ -693,8 +724,7 @@ bash ${RUNNER_SCRIPT}
 
 Use your own judgment. Do not blindly accept every suggestion."
     fi
-
-    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback"
+    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback or continue to the next round"
 
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -725,21 +755,26 @@ Record each fix, skipped finding, and verification command with its result
           cleanup_runtime_files
           printf '{"decision":"approve"}\n'
         else
-          log "Review verdict: FAIL (review_id=$REVIEW_ID)"
-          REASON="The review verdict is FAIL.
-
-Before changing any code, read the full round history in ${REVIEW_DIR}.
-Read every review-*.md and summary-*.md file in that directory, including
-${REVIEW_DIR}/summary-0.md and ${REVIEW_FILE}.
-
-Address the findings, write the correction summary, then run the reviewer again:
-\`\`\`
-bash ${RUNNER_SCRIPT}
-\`\`\`"
-          SYS_MSG="Review Loop [${REVIEW_ID}] — Verdict: FAIL"
-          jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
-            '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
-            || printf '{"decision":"block","reason":"The review verdict is FAIL. Address the findings and run the reviewer again.","systemMessage":"Review Loop verdict: FAIL"}\n'
+          log "Review verdict: FAIL (review_id=$REVIEW_ID, round=$ROUND)"
+          if [ "$ROUND" -ge "$MAX_ROUNDS" ]; then
+            log "Review loop reached maximum rounds (review_id=$REVIEW_ID, round=$ROUND, max_rounds=$MAX_ROUNDS)"
+            cleanup_runtime_files
+            REASON="MAX_ROUNDS_REACHED: the review still returned FAIL after ${MAX_ROUNDS} round(s). The changes were not accepted."
+            SYS_MSG="Review Loop [${REVIEW_ID}] — Maximum rounds reached"
+            jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
+              '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+              || printf '{"decision":"block","reason":"MAX_ROUNDS_REACHED: the review did not pass. The changes were not accepted.","systemMessage":"Review Loop maximum rounds reached"}\n'
+          else
+            NEXT_ROUND=$((ROUND + 1))
+            if ! transition_to_next_round "$NEXT_ROUND"; then
+              log "ERROR: failed to advance review loop to round $NEXT_ROUND"
+              cleanup_runtime_files
+              printf '{"decision":"approve"}\n'
+              exit 0
+            fi
+            log "Review round $ROUND failed; re-running reviewer for round $NEXT_ROUND"
+            exec "$STOP_HOOK_SCRIPT" <<< "$HOOK_INPUT"
+          fi
         fi
       else
         log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"

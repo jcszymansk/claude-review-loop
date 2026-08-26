@@ -2,11 +2,11 @@
 
 ## What this is
 
-A Claude Code plugin that creates a two-phase review loop:
+A Claude Code plugin that creates a bounded review loop:
 1. Claude implements a task
 2. The Stop hook runs the configured reviewer
 3. On `FAIL`, the Stop hook starts a fresh interactive Claude correction session
-4. Claude reads the review, verifies the findings, and addresses feedback
+4. After a complete correction summary, the hook reruns the reviewer for the next round until `PASS` or the round limit
 
 ## Conventions
 
@@ -21,8 +21,8 @@ A Claude Code plugin that creates a two-phase review loop:
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
 - Claude Code does NOT set `stop_hook_active` in hook input — do not rely on it for re-entrancy detection
-- The `addressing` phase verifies the current numbered review file before allowing exit; summaries are kept alongside each round's review
-- Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit.
+- The `addressing` phase verifies the current numbered review file and correction summary before allowing exit; a complete `FAIL` round advances automatically to the next review
+- Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit
 
 ## Security constraints
 

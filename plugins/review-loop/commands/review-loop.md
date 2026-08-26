@@ -86,16 +86,16 @@ After setup completes successfully, proceed to implement the task described in t
 Before your first stop, read `.claude/review-loop.local.json` to get the review ID and update `reviews/<review_id>/summary-0.md` with an implementation summary. Include changed files, key decisions, and verification results.
 
 After the Stop hook runs the review:
-1. Read `reviews/<review_id>/review-1.md` and address the findings
-2. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-1.md`
-3. If the first line is `VERDICT: FAIL`, implement any remaining agreed fixes and record skipped findings with reasons
-4. Write a non-empty `reviews/<review_id>/summary-<round>.md` with these sections:
+1. Read `reviews/<review_id>/review-<round>.md` and address the findings
+2. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-<round>.md`
+3. Write a non-empty correction summary with these sections:
    - `## Fixes`
    - `## Skipped findings`
    - `## Quality gates`
    Record each fix, skipped finding, and verification command with its result (`PASS`, `FAIL`, or `NOT RUN`)
-5. Rerun the generated reviewer script after changing the code. If the artifact or verdict is missing or malformed, rerun the script before addressing the findings
-6. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete
+4. After the summary is complete, the hook advances to the next round and reruns the reviewer automatically
+5. If the artifact or verdict is missing or malformed, rerun the generated reviewer script before addressing the findings
+6. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete, or the hook reports `MAX_ROUNDS_REACHED`
 
 The loop directory is kept after cleanup. Later rounds use the same directory with `review-<round>.md` and `summary-<round>.md`.
 
@@ -103,4 +103,4 @@ RULES:
 - Complete the task to the best of your ability before stopping
 - Do not stop prematurely or skip parts of the task
 - Always write the required summary before stopping
-- When blocked by the hook, read the review first; if the verdict is `FAIL`, address the findings and write the summary before rerunning the generated reviewer script; if the artifact or verdict is missing or malformed, rerun the script before addressing the findings
+- When blocked by the hook, read the review first; if the verdict is `FAIL`, address the findings and write the summary before stopping again. The hook reruns the reviewer after a complete summary; if the artifact or verdict is missing or malformed, rerun the generated script before addressing the findings.

@@ -4,10 +4,10 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 
 ## What it does
 
-When you use `/review-loop`, the plugin creates a two-phase lifecycle:
+When you use `/review-loop`, the plugin creates a bounded review lifecycle:
 
 1. **Task phase**: You describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: The Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it starts a fresh interactive Claude correction session, then blocks the original session so the reviewer can be run again. A `VERDICT: PASS`, missing verdict, or malformed verdict keeps the loop from being accepted.
+2. **Review phase**: The Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it starts a fresh interactive Claude correction session, then reruns the reviewer for the next round after the correction summary is complete. The loop stops on `VERDICT: PASS` or the maximum round count. A missing or malformed verdict keeps the loop from being accepted.
 
 
 
@@ -84,11 +84,11 @@ claude plugin update review-loop@hamel-review
 
 Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` with task context; before the first stop, Claude replaces it with an implementation summary. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
-2. Runs the reviewer for round 1, recording its output in `.claude/review-loop.log`
+2. Runs the reviewer for the current round, recording its output in `.claude/review-loop.log`
 3. If the verdict is `VERDICT: FAIL`, starts a fresh interactive Claude correction session
-4. Blocks the original Claude session so it can inspect the correction and rerun the reviewer
-5. The reviewer writes findings to `reviews/<id>/review-1.md`; if it returns review text on stdout instead, the runner captures that output when the artifact is missing
-6. A `VERDICT: FAIL`, missing verdict, or malformed verdict keeps the loop blocked. A `VERDICT: PASS` allows exit only after Claude writes a non-empty `summary-1.md` containing `## Fixes`, `## Skipped findings`, and `## Quality gates`, with verification results marked `PASS`, `FAIL`, or `NOT RUN`.
+4. After the correction summary is complete, reruns the reviewer for the next round
+5. Keeps each numbered review and correction summary in `reviews/<id>/`
+6. Stops on `VERDICT: PASS`, or reports `MAX_ROUNDS_REACHED` when repeated failures exhaust the configured limit. A missing or malformed verdict keeps the loop blocked for correction.
 
 
 ### Cancel a review loop
@@ -103,9 +103,8 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a numbered reviewer runner and prompt file, runs the configured reviewer for the current round, and transitions to `addressing`
 3. If the review verdict is `FAIL`, the hook starts one fresh interactive Claude correction session with the review context
-4. The hook blocks the original Claude session. It verifies the current numbered review has a valid `VERDICT: PASS` and a complete correction summary; a `FAIL`, missing verdict, malformed verdict, or incomplete summary keeps the loop blocked until corrected.
-
-The hook removes runtime state and generated runner files only. It never removes `reviews/<id>/`, so summaries and review output remain available after cleanup. `/cancel-review` follows the same rule; future round-limit termination must preserve the directory as well.
+4. After the correction summary is complete, the hook advances the round and reruns the reviewer automatically
+5. A `PASS` allows exit after its correction summary is complete; repeated failures end with `MAX_ROUNDS_REACHED` and preserve the review history
 
 State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/` containing `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs.
 
