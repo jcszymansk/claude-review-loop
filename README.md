@@ -6,7 +6,7 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 
 When you use `/review-loop`, the plugin creates a two-phase lifecycle:
 
-1. **Task phase**: You describe a task, Claude implements it, and writes `summary-0.md`
+1. **Task phase**: You describe a task, setup creates `summary-0.md`, and Claude updates it with the implementation summary
 2. **Review phase**: The stop hook prepares a runner for the selected reviewer and blocks exit. Claude runs the reviewer directly, reads `review-1.md`, addresses the findings, and writes `summary-1.md`.
 
 
@@ -81,7 +81,7 @@ claude plugin update review-loop@hamel-review
 /review-loop Add user authentication with JWT tokens and test coverage
 ```
 
-Claude will implement the task. Before the first stop, write an implementation summary to `reviews/<id>/summary-0.md`. The stop hook then:
+Claude will implement the task. Setup creates `reviews/<id>/summary-0.md`; before the first stop, Claude updates it with an implementation summary. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
 2. Blocks Claude's exit with instructions to run the review
 3. Claude runs the generated reviewer script and sees its output

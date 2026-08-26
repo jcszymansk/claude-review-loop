@@ -62,6 +62,8 @@ if ! mkdir "$LOOP_DIR"; then
   exit 1
 fi
 
+printf '# Review Loop Task\n\n%s\n' "$ARGUMENTS" > "$LOOP_DIR/summary-0.md"
+
 
 rm -f .claude/review-loop.lock
 STATE_TEMP="${STATE_FILE}.tmp.$$"
@@ -81,7 +83,7 @@ echo "Review artifacts: ${LOOP_DIR}/summary-0.md and ${LOOP_DIR}/review-1.md"
 
 After setup completes successfully, proceed to implement the task described in the arguments. Work thoroughly and completely — write clean, well-structured, well-tested code.
 
-Before your first stop, read `.claude/review-loop.local.json` to get the review ID and write an implementation summary to `reviews/<review_id>/summary-0.md`. Include changed files, key decisions, and verification results.
+Before your first stop, read `.claude/review-loop.local.json` to get the review ID and update `reviews/<review_id>/summary-0.md` with an implementation summary. Include changed files, key decisions, and verification results.
 
 After the stop hook prepares the review:
 1. Run the generated reviewer script with a 600000ms timeout

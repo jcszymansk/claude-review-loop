@@ -111,6 +111,8 @@ if ! mkdir "$LOOP_DIR"; then
   exit 1
 fi
 
+printf '# Review Loop Task\n\n%s\n' "$PROMPT" > "$LOOP_DIR/summary-0.md"
+
 MAX_ROUNDS=3
 
 # Clean up stale lock from previous runs

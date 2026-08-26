@@ -115,5 +115,11 @@ if [ ! -d "$SETUP_PROJECT_DIR/reviews/$SETUP_REVIEW_ID" ]; then
   printf 'FAIL: setup did not create its loop directory\n' >&2
   exit 1
 fi
+if [ ! -f "$SETUP_PROJECT_DIR/reviews/$SETUP_REVIEW_ID/summary-0.md" ]; then
+  printf 'FAIL: setup did not create summary-0.md\n' >&2
+  exit 1
+fi
+grep -q 'Preserve the existing Codex workflow' \
+  "$SETUP_PROJECT_DIR/reviews/$SETUP_REVIEW_ID/summary-0.md"
 
 printf 'legacy Codex compatibility test passed\n'
