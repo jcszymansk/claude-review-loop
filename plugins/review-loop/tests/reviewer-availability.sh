@@ -33,6 +33,9 @@ write_state() {
       active: true,
       phase: "task",
       reviewer: $reviewer,
+      task: "review the current changes",
+      round: 1,
+      max_rounds: 3,
       review_id: "20260826-123456-abcdef",
       started_at: "2026-08-26T12:34:56Z"
     }' > "$STATE_FILE"
@@ -43,6 +46,9 @@ write_addressing_state() {
     active: true,
     phase: "addressing",
     reviewer: "codex",
+    task: "review the current changes",
+    round: 1,
+    max_rounds: 3,
     review_id: "20260826-123456-abcdef",
     started_at: "2026-08-26T12:34:56Z"
   }' > "$STATE_FILE"
@@ -101,6 +107,22 @@ printf '{"active":' > "$STATE_FILE"
 output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
 if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
   printf 'FAIL: malformed JSON state was not failed open: %s\n' "$output" >&2
+  exit 1
+fi
+
+jq -n '{
+  active: true,
+  phase: "task",
+  reviewer: "codex",
+  task: "review the current changes",
+  round: "one",
+  max_rounds: 3,
+  review_id: "20260826-123456-abcdef",
+  started_at: "2026-08-26T12:34:56Z"
+}' > "$STATE_FILE"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
+  printf 'FAIL: invalid state field type was not failed open: %s\n' "$output" >&2
   exit 1
 fi
 

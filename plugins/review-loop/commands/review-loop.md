@@ -34,6 +34,7 @@ case "$REVIEWER" in
     ;;
 esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+MAX_ROUNDS=3
 mkdir -p .claude reviews
 STATE_FILE=".claude/review-loop.local.json"
 if [ -f "$STATE_FILE" ]; then
@@ -60,9 +61,12 @@ rm -f .claude/review-loop.lock
 STATE_TEMP="${STATE_FILE}.tmp.$$"
 jq -n \
   --arg reviewer "$REVIEWER" \
+  --arg task "$ARGUMENTS" \
+  --argjson round 1 \
+  --argjson max_rounds "$MAX_ROUNDS" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, review_id:$review_id, started_at:$started_at}' \
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at}' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"

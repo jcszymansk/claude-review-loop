@@ -104,6 +104,7 @@ else
   RAND_HEX=$(head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')
 fi
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-${RAND_HEX}"
+MAX_ROUNDS=3
 
 # Clean up stale lock from previous runs
 rm -f .claude/review-loop.lock
@@ -113,11 +114,15 @@ mkdir -p .claude
 STATE_TEMP="${STATE_FILE}.tmp.$$"
 jq -n \
   --arg reviewer "$REVIEWER" \
+  --arg task "$PROMPT" \
+  --argjson round 1 \
+  --argjson max_rounds "$MAX_ROUNDS" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, review_id:$review_id, started_at:$started_at}' \
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at}' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
+
 
 # Ensure reviews directory exists
 mkdir -p reviews

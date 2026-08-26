@@ -103,7 +103,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 2. If in `task` phase: writes a reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
 3. If in `addressing` phase: allows exit and cleans up
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`). Reviews are written to `reviews/review-<id>.md`.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Reviews are written to `reviews/review-<id>.md`.
 
 ## File structure
 

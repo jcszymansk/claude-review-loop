@@ -58,8 +58,11 @@ if ! jq -e '
   type == "object"
   and (.active | type == "boolean")
   and (.phase | type == "string")
-  and (.review_id | type == "string")
   and ((has("reviewer") | not) or (.reviewer | type == "string"))
+  and (.task | type == "string")
+  and (.round | type == "number")
+  and (.max_rounds | type == "number")
+  and (.review_id | type == "string")
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
   rm -f "$STATE_FILE"
@@ -74,8 +77,11 @@ parse_field() {
 
 if ! ACTIVE=$(parse_field "active") ||
   ! PHASE=$(parse_field "phase") ||
-  ! REVIEW_ID=$(parse_field "review_id") ||
-  ! REVIEWER=$(parse_field "reviewer"); then
+  ! REVIEWER=$(parse_field "reviewer") ||
+  ! TASK=$(parse_field "task") ||
+  ! ROUND=$(parse_field "round") ||
+  ! MAX_ROUNDS=$(parse_field "max_rounds") ||
+  ! REVIEW_ID=$(parse_field "review_id"); then
   log "ERROR: failed to read JSON state file"
   rm -f "$STATE_FILE"
   printf '{"decision":"approve"}\n'

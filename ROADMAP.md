@@ -74,7 +74,7 @@ cursor-agent -p --output-format text < "$PROMPT_FILE"
 Replace ad-hoc phase parsing with explicit per-loop state and artifacts.
 
 - [x] Store state as JSON.
-- [ ] Track reviewer, task, round, maximum rounds, phase, and review ID.
+- [x] Track reviewer, task, round, maximum rounds, phase, and review ID.
 - [ ] Create one directory per loop.
 - [ ] Store `summary-0.md`, `review-1.md`, `summary-1.md`, and later rounds together.
 - [ ] Require the first review line to be exactly `VERDICT: PASS` or `VERDICT: FAIL`.

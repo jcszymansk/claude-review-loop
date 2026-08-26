@@ -14,7 +14,7 @@ A Claude Code plugin that creates a two-phase review loop:
 - Shell scripts must work on both macOS and Linux (handle `sed -i` differences)
 - The stop hook MUST always produce valid JSON to stdout — never let non-JSON text leak
 - Fail-open: on any error, approve exit rather than trapping the user
-- State lives in `.claude/review-loop.local.json` as JSON — always clean up on exit
+- State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at` — always clean up on exit
 - Review ID format: `YYYYMMDD-HHMMSS-hexhex` — validate before using in paths
 - Reviewers run via provider-specific runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) that Claude executes via Bash — output streams directly to the user
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script

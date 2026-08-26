@@ -36,11 +36,13 @@ cat > "$PROJECT_DIR/.claude/review-loop.local.json" <<'STATE_EOF'
 {
   "active": true,
   "phase": "task",
+  "task": "preserve the existing Codex workflow",
+  "round": 1,
+  "max_rounds": 3,
   "review_id": "20260826-113800-abcdef",
   "started_at": "2026-08-26T11:38:00Z"
 }
 STATE_EOF
-
 OUTPUT=$(cd "$PROJECT_DIR" && env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$HOOK" <<< '{}')
 
 case "$OUTPUT" in
@@ -51,8 +53,13 @@ case "$OUTPUT" in
     ;;
 esac
 grep -q "REVIEWER='codex'" "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
-jq -e '.phase == "addressing" and (.reviewer // "codex") == "codex"' \
-  "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
+jq -e '
+  .phase == "addressing"
+  and (.reviewer // "codex") == "codex"
+  and .task == "preserve the existing Codex workflow"
+  and .round == 1
+  and .max_rounds == 3
+' "$PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
 
 (
   cd "$SETUP_PROJECT_DIR"
@@ -60,7 +67,14 @@ jq -e '.phase == "addressing" and (.reviewer // "codex") == "codex"' \
     "$SETUP" "Preserve the existing Codex workflow" >/dev/null
 )
 grep -q '^multi_agent = true$' "$SETUP_HOME_DIR/.codex/config.toml"
-jq -e '.reviewer == "codex" and .active == true and .phase == "task"' \
-  "$SETUP_PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
+jq -e '
+  .reviewer == "codex"
+  and .active == true
+  and .phase == "task"
+  and .task == "Preserve the existing Codex workflow"
+  and .round == 1
+  and .max_rounds == 3
+  and (.review_id | test("^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$"))
+' "$SETUP_PROJECT_DIR/.claude/review-loop.local.json" >/dev/null
 
 printf 'legacy Codex compatibility test passed\n'
