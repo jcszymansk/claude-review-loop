@@ -36,6 +36,8 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 HOOK_INPUT=$(cat)
 
 STATE_FILE=".claude/review-loop.local.md"
+REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
+REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
 
 # No active loop → allow exit
 if [ ! -f "$STATE_FILE" ]; then
@@ -43,33 +45,6 @@ if [ ! -f "$STATE_FILE" ]; then
   exit 0
 fi
 
-# Parse a reviewer from a simple TOML config file.
-read_config_reviewer() {
-  local config_file="$1"
-  local reviewer
-
-  reviewer=$(sed -nE 's/^[[:space:]]*reviewer[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*(#.*)?$/\1/p' "$config_file" | head -n 1)
-  if [ -z "$reviewer" ]; then
-    log "ERROR: $config_file must define reviewer = \"codex|gemini|cursor\""
-    return 1
-  fi
-  printf '%s\n' "$reviewer"
-}
-
-resolve_reviewer() {
-  local project_config=".review-loop.toml"
-  local user_config="${XDG_CONFIG_HOME:-${HOME:-$PWD/.config}}/review-loop/config.toml"
-
-  if [ -n "${REVIEW_LOOP_REVIEWER:-}" ]; then
-    printf '%s\n' "$REVIEW_LOOP_REVIEWER"
-  elif [ -f "$project_config" ]; then
-    read_config_reviewer "$project_config"
-  elif [ -f "$user_config" ]; then
-    read_config_reviewer "$user_config"
-  else
-    printf 'codex\n'
-  fi
-}
 
 # Parse a field from the YAML frontmatter
 parse_field() {
@@ -81,7 +56,7 @@ PHASE=$(parse_field "phase")
 REVIEW_ID=$(parse_field "review_id")
 REVIEWER=$(parse_field "reviewer")
 if [ -z "$REVIEWER" ]; then
-  REVIEWER=$(resolve_reviewer) || REVIEWER=""
+  REVIEWER=$("$REVIEWER_RESOLVER") || REVIEWER=""
 fi
 
 # Not active → clean up and exit
@@ -112,7 +87,7 @@ case "$REVIEWER" in
     ;;
 esac
 
-REVIEWER_DISPATCHER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)/run-reviewer.sh"
+REVIEWER_DISPATCHER="$REVIEWER_SCRIPTS_DIR/run-reviewer.sh"
 
 # ── Project type detection ────────────────────────────────────────────────
 detect_nextjs() {

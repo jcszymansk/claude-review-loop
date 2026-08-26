@@ -120,6 +120,7 @@ claude-review-loop/
 │   └── stop-hook.sh          # Core lifecycle engine
 ├── scripts/
 │   ├── setup-review-loop.sh  # Argument parsing, state file creation
+│   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
 │   └── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
 ├── AGENTS.md                  # Agent operating guidelines
 ├── CLAUDE.md                  # Symlink to AGENTS.md
