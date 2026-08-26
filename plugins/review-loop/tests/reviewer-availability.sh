@@ -7,7 +7,7 @@ TMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TMP_DIR/project"
 HOME_DIR="$TMP_DIR/home"
 BIN_DIR="$TMP_DIR/bin"
-STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.md"
+STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.json"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -27,18 +27,32 @@ done
 
 write_state() {
   local reviewer="$1"
-  cat > "$STATE_FILE" <<STATE_EOF
----
-active: true
-phase: task
-reviewer: ${reviewer}
-review_id: 20260826-123456-abcdef
-started_at: 2026-08-26T12:34:56Z
----
-
-Review the existing changes.
-STATE_EOF
+  jq -n \
+    --arg reviewer "$reviewer" \
+    '{
+      active: true,
+      phase: "task",
+      reviewer: $reviewer,
+      review_id: "20260826-123456-abcdef",
+      started_at: "2026-08-26T12:34:56Z"
+    }' > "$STATE_FILE"
 }
+
+write_addressing_state() {
+  jq -n '{
+    active: true,
+    phase: "addressing",
+    reviewer: "codex",
+    review_id: "20260826-123456-abcdef",
+    started_at: "2026-08-26T12:34:56Z"
+  }' > "$STATE_FILE"
+}
+
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null; then
+  printf 'FAIL: no-state path did not approve: %s\n' "$output" >&2
+  exit 1
+fi
 
 assert_missing_cli() {
   local reviewer="$1"
@@ -66,5 +80,28 @@ assert_missing_cli() {
 assert_missing_cli codex codex Codex 'npm install -g @openai/codex'
 assert_missing_cli gemini gemini Gemini 'npm install -g @google/gemini-cli'
 assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/install -fsS | bash'
+
+write_addressing_state
+mkdir -p "$PROJECT_DIR/reviews"
+: > "$PROJECT_DIR/.claude/review-loop-run-codex.sh"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "block"' <<< "$output" >/dev/null || [ ! -f "$STATE_FILE" ]; then
+  printf 'FAIL: addressing path did not block without a review: %s\n' "$output" >&2
+  exit 1
+fi
+
+: > "$PROJECT_DIR/reviews/review-20260826-123456-abcdef.md"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
+  printf 'FAIL: addressing path did not approve with a review: %s\n' "$output" >&2
+  exit 1
+fi
+
+printf '{"active":' > "$STATE_FILE"
+output=$(cd "$PROJECT_DIR" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR" "$HOOK" <<< '{}')
+if ! jq -e '.decision == "approve"' <<< "$output" >/dev/null || [ -f "$STATE_FILE" ]; then
+  printf 'FAIL: malformed JSON state was not failed open: %s\n' "$output" >&2
+  exit 1
+fi
 
 printf 'reviewer availability tests passed\n'

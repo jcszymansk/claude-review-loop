@@ -37,7 +37,7 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 # Consume stdin (hook input JSON) — must read to avoid broken pipe
 HOOK_INPUT=$(cat)
 
-STATE_FILE=".claude/review-loop.local.md"
+STATE_FILE=".claude/review-loop.local.json"
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
 
@@ -47,18 +47,43 @@ if [ ! -f "$STATE_FILE" ]; then
   exit 0
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  log "ERROR: jq is required to read state"
+  rm -f "$STATE_FILE"
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
 
-# Parse a field from the YAML frontmatter
+if ! jq -e '
+  type == "object"
+  and (.active | type == "boolean")
+  and (.phase | type == "string")
+  and (.review_id | type == "string")
+  and ((has("reviewer") | not) or (.reviewer | type == "string"))
+' "$STATE_FILE" >/dev/null 2>&1; then
+  log "ERROR: malformed JSON state file"
+  rm -f "$STATE_FILE"
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
+
+# Parse a field from the JSON state
 parse_field() {
-  sed -n "s/^${1}: *//p" "$STATE_FILE" | head -1
+  jq -r --arg field "$1" '.[$field]' "$STATE_FILE"
 }
 
-ACTIVE=$(parse_field "active")
-PHASE=$(parse_field "phase")
-REVIEW_ID=$(parse_field "review_id")
-REVIEWER=$(parse_field "reviewer")
-if [ -z "$REVIEWER" ]; then
-  # Legacy state files predate reviewer selection and always used Codex.
+if ! ACTIVE=$(parse_field "active") ||
+  ! PHASE=$(parse_field "phase") ||
+  ! REVIEW_ID=$(parse_field "review_id") ||
+  ! REVIEWER=$(parse_field "reviewer"); then
+  log "ERROR: failed to read JSON state file"
+  rm -f "$STATE_FILE"
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
+
+if [ -z "$REVIEWER" ] || [ "$REVIEWER" = "null" ]; then
+  # State files without reviewer selection always use Codex.
   REVIEWER=codex
 fi
 
@@ -310,19 +335,19 @@ IMPORTANT: You MUST create the file ${REVIEW_FILE} with the full review.
 CONSOLIDATION_EOF
 }
 
-# ── Rewrite state file to update phase (atomic, no fragile sed regex) ──────
+# ── Rewrite JSON state to update phase (atomic) ───────────────────────────
 transition_phase() {
   local new_phase="$1"
   local TEMP_FILE="${STATE_FILE}.tmp.$$"
 
-  # Rewrite: replace 'phase: <anything>' with 'phase: <new_phase>'
-  # Use awk for robustness — handles whitespace variants, no anchoring issues
-  awk -v np="$new_phase" '{
-    if ($0 ~ /^phase:/) { print "phase: " np }
-    else { print }
-  }' "$STATE_FILE" > "$TEMP_FILE"
-
-  mv "$TEMP_FILE" "$STATE_FILE"
+  if ! jq --arg phase "$new_phase" '.phase = $phase' "$STATE_FILE" > "$TEMP_FILE"; then
+    rm -f "$TEMP_FILE"
+    return 1
+  fi
+  if ! mv "$TEMP_FILE" "$STATE_FILE"; then
+    rm -f "$TEMP_FILE"
+    return 1
+  fi
 
   # Verify the transition succeeded
   local CHECK

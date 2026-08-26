@@ -1,23 +1,23 @@
 ---
 description: "Cancel an active review loop"
 allowed-tools:
-  - Bash(test -f .claude/review-loop.local.md *)
-  - Bash(rm -f .claude/review-loop.local.md .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries)
+  - Bash(test -f .claude/review-loop.local.json *)
+  - Bash(rm -f .claude/review-loop.local.json .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries)
   - Read
 ---
 
 Check if a review loop is active:
 
 ```bash
-test -f .claude/review-loop.local.md && echo "ACTIVE" || echo "NONE"
+test -f .claude/review-loop.local.json && echo "ACTIVE" || echo "NONE"
 ```
 
-If active, read `.claude/review-loop.local.md` to get the current phase and review ID.
+If active, read `.claude/review-loop.local.json` to get the current phase and review ID.
 
 Then remove the state file, lock file, and any generated reviewer files:
 
 ```bash
-rm -f .claude/review-loop.local.md .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries
+rm -f .claude/review-loop.local.json .claude/review-loop.lock .claude/review-loop-run-codex.sh .claude/review-loop-run-gemini.sh .claude/review-loop-run-cursor.sh .claude/review-loop-codex-prompt.txt .claude/review-loop-gemini-prompt.txt .claude/review-loop-cursor-prompt.txt .claude/review-loop-retries
 ```
 
 Report: "Review loop cancelled (was at phase: X, review ID: Y)"

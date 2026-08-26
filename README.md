@@ -99,12 +99,11 @@ Claude will implement the task. When it finishes, the stop hook:
 
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
-1. The hook reads the state file (`.claude/review-loop.local.md`)
+1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: writes a reviewer runner and prompt file, transitions to `addressing`, and blocks exit with instructions for Claude to run the review
-
 3. If in `addressing` phase: allows exit and cleans up
 
-State is tracked in `.claude/review-loop.local.md` (add to `.gitignore`). Reviews are written to `reviews/review-<id>.md`.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`). Reviews are written to `reviews/review-<id>.md`.
 
 ## File structure
 

@@ -35,7 +35,8 @@ case "$REVIEWER" in
 esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 mkdir -p .claude reviews
-if [ -f .claude/review-loop.local.md ]; then
+STATE_FILE=".claude/review-loop.local.json"
+if [ -f "$STATE_FILE" ]; then
   echo "Error: A review loop is already active. Use /cancel-review first."
   exit 1
 fi
@@ -46,22 +47,24 @@ if ! command -v "$REVIEWER_CLI" >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: 'jq' is required but not found."
+  exit 1
+fi
+
 if [ "$REVIEWER" = "codex" ]; then
   "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-codex-config.sh"
 fi
 
 rm -f .claude/review-loop.lock
-cat > .claude/review-loop.local.md << STATE_EOF
----
-active: true
-phase: task
-reviewer: ${REVIEWER}
-review_id: ${REVIEW_ID}
-started_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
----
-
-$ARGUMENTS
-STATE_EOF
+STATE_TEMP="${STATE_FILE}.tmp.$$"
+jq -n \
+  --arg reviewer "$REVIEWER" \
+  --arg review_id "$REVIEW_ID" \
+  --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  '{active:true, phase:"task", reviewer:$reviewer, review_id:$review_id, started_at:$started_at}' \
+  > "$STATE_TEMP"
+mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"
 ```
 
