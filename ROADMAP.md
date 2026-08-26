@@ -107,7 +107,7 @@ Add the review, correction, and re-review loop.
 - [x] Continue until `PASS` or the configured maximum round count.
 - [x] Make the round limit configurable, with a bounded default.
 - [x] Support cancellation that stops child processes without deleting review history.
-- [ ] Prevent correction-session Stop hooks from recursively starting another orchestrator.
+- [x] Prevent correction-session Stop hooks from recursively starting another orchestrator.
 
 The initial implementation should remain interactive. Fresh headless Claude sessions should handle only later correction rounds.
 
