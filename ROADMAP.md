@@ -101,7 +101,7 @@ Add the review, correction, and re-review loop.
 - [x] Verify that the reviewer produced a usable artifact.
 - [x] Parse the verdict.
 - [x] Stop immediately on `PASS`.
-- [ ] On `FAIL`, start a fresh Claude correction session.
+- [x] On `FAIL`, start a fresh Claude correction session.
 - [ ] Ask Claude to read the full round history before changing code.
 - [ ] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [ ] Continue until `PASS` or the configured maximum round count.

@@ -408,6 +408,37 @@ transition_phase() {
   log "Phase transitioned to: $new_phase"
   return 0
 }
+# ── Start a fresh correction session ───────────────────────────────────────
+start_correction_session() {
+  local correction_prompt
+  local correction_status
+
+  correction_prompt=$(cat << CORRECTION_EOF
+You are a fresh Claude correction session for review loop ${REVIEW_ID}.
+
+Original task:
+${TASK}
+
+Read the review at ${REVIEW_FILE}. For each finding, verify it against the
+codebase, implement the fixes you agree with, and note any skipped findings.
+Write the correction summary to ${SUMMARY_FILE}.
+
+Do not modify the review file or run the reviewer. Stop after the correction
+summary is written so the interactive session can run the reviewer again.
+CORRECTION_EOF
+)
+
+  log "Starting fresh Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
+  if claude --bare -p --dangerously-skip-permissions "$correction_prompt" >>"$LOG_FILE" 2>&1; then
+    log "Fresh Claude correction session finished (review_id=$REVIEW_ID, round=$ROUND)"
+    return 0
+  else
+    correction_status=$?
+  fi
+
+  log "ERROR: fresh Claude correction session failed (review_id=$REVIEW_ID, round=$ROUND, exit=$correction_status)"
+  return "$correction_status"
+}
 
 case "$PHASE" in
   task)
@@ -515,6 +546,7 @@ RUNNER_EOF
       exit 0
     fi
 
+    CORRECTION_STATUS=""
     log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
     if review_artifact_is_usable "$REVIEW_FILE"; then
       log "Review artifact ready (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
@@ -523,11 +555,33 @@ RUNNER_EOF
       else
         REVIEW_STATUS="exited with status ${REVIEWER_EXIT}; rerun it if the review artifact is malformed"
       fi
+
+      if VERDICT=$(parse_verdict "$REVIEW_FILE") && [ "$VERDICT" = "FAIL" ]; then
+        CORRECTION_STATUS="not started because the Claude CLI is unavailable"
+        if command -v claude >/dev/null 2>&1; then
+          if start_correction_session; then
+            CORRECTION_STATUS="completed"
+          else
+            CORRECTION_STATUS="failed"
+          fi
+        else
+          log "ERROR: claude not found on PATH; keeping FAIL in the current session"
+        fi
+      fi
     else
       log "ERROR: ${REVIEWER} did not produce a usable review artifact (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
       REVIEW_STATUS="did not produce a usable artifact; rerun it with the generated script"
     fi
-    REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
+
+    if [ -n "$CORRECTION_STATUS" ]; then
+      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}. A fresh headless Claude correction session ${CORRECTION_STATUS}.
+
+Read ${REVIEW_FILE}, verify its findings, address the agreed items, write ${SUMMARY_FILE}, then run the reviewer again:
+\`\`\`
+bash ${RUNNER_SCRIPT}
+\`\`\`"
+    else
+      REASON="Phase 1 complete. The ${REVIEWER} review for round ${ROUND} ${REVIEW_STATUS}.
 
 Read ${REVIEW_FILE} and address the findings:
 1. Read the review carefully
@@ -544,6 +598,7 @@ bash ${RUNNER_SCRIPT}
 \`\`\`
 
 Use your own judgment. Do not blindly accept every suggestion."
+    fi
 
     SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback"
 

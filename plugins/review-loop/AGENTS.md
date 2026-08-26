@@ -4,9 +4,9 @@
 
 A Claude Code plugin that creates a two-phase review loop:
 1. Claude implements a task
-2. Stop hook prepares and runs a configured reviewer
-3. Claude reads the review and addresses feedback
-
+2. The Stop hook runs the configured reviewer
+3. On `FAIL`, the Stop hook starts a fresh headless Claude correction session
+4. Claude reads the review, verifies the findings, and addresses feedback
 
 ## Conventions
 
