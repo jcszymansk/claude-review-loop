@@ -108,15 +108,16 @@ Before your first stop, read `.claude/review-loop.local.json` to get the review 
 
 After the Stop hook runs the review:
 1. Read `reviews/<review_id>/review-<round>.md` and address the findings
-2. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-<round>.md`
-3. Write a non-empty correction summary with these sections:
+2. Verify each finding against the codebase before applying any change: open the referenced file and line, reproduce the problem, and confirm it is still present. Findings that do not reproduce, are already fixed, or that you reject go under `## Skipped findings` with the reason
+3. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-<round>.md`
+4. Write a non-empty correction summary with these sections:
    - `## Fixes`
    - `## Skipped findings`
    - `## Quality gates`
    Record each fix, skipped finding, and verification command with its result (`PASS`, `FAIL`, or `NOT RUN`)
-4. After the summary is complete, the hook advances to the next round and reruns the reviewer automatically
-5. If the artifact or verdict is missing or malformed, rerun the generated reviewer script before addressing the findings
-6. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete, or the hook reports `MAX_ROUNDS_REACHED`
+5. After the summary is complete, the hook advances to the next round and reruns the reviewer automatically
+6. If the artifact or verdict is missing or malformed, rerun the generated reviewer script before addressing the findings
+7. Stop only after the reviewer returns `VERDICT: PASS` and the correction summary is complete, or the hook reports `MAX_ROUNDS_REACHED`
 
 The loop directory is kept after cleanup. Later rounds use the same directory with `review-<round>.md` and `summary-<round>.md`.
 

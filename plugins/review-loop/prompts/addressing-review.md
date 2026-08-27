@@ -10,15 +10,20 @@ __REVIEW_DIR__/summary-0.md and __REVIEW_FILE__.
 Read __REVIEW_FILE__ and address the findings:
 1. Read the review carefully
 2. For each item, independently decide if you agree
-3. For items you AGREE with: implement the fix
-4. For items you DISAGREE with: briefly note why you are skipping them
-5. Focus on critical and high severity items first
-6. Write a non-empty summary to __SUMMARY_FILE__ with these Markdown sections:
+3. Verify each item against the codebase before changing anything: open the
+   referenced file and line, reproduce the problem, and confirm it is still
+   present
+4. For items you AGREE with and verified: implement the fix
+5. For items you DISAGREE with, or that do not reproduce or are already
+   fixed: briefly note why you are skipping them under Skipped findings
+6. Focus on critical and high severity items first
+7. Write a non-empty summary to __SUMMARY_FILE__ with these Markdown sections:
    ## Fixes
    ## Skipped findings
    ## Quality gates
    Record each fix, skipped finding, and verification command with its result
-   (PASS, FAIL, or NOT RUN)
+   (PASS, FAIL, or NOT RUN), and note the verification you performed for each
+   fix in the Fixes section
 
 If __REVIEW_FILE__ is missing or malformed, rerun the reviewer with a 600000ms timeout:
 ```
