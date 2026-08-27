@@ -44,3 +44,4 @@ A Claude Code plugin that creates a bounded review loop:
 - Test addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, and approves only when a valid `PASS` verdict exists.
 - Run `tests/cancellation.sh` to verify reviewer and correction-session processes stop while review history remains.
 - Run `tests/reviewer-errors.sh` to verify a reviewer that exits non-zero (crash, crash after writing a verdict, or killed by a timeout) never reports PASS: each failed attempt is preserved as a numbered `review-<round>.md.reviewer-error.<n>` artifact, the canonical review path stays vacant so the retry gate takes over, and the loop fails open while keeping history.
+- Run `tests/concurrent-isolation.sh` to verify two loops in one repository (root and nested directory) running concurrently keep separate state, prompts, runner scripts, logs, and review history, and that one loop's cleanup never touches the other's files.

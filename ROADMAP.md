@@ -139,7 +139,7 @@ Add deterministic tests around the shell lifecycle before changing the default b
 - [x] Test reviewer non-zero exit and timeout behavior.
 - [x] Test cancellation and child-process cleanup.
 - [x] Test nested working directories and worktrees.
-- [ ] Test concurrent loop isolation.
+- [x] Test concurrent loop isolation.
 - [ ] Test provider selection and command construction with fake CLIs.
 - [ ] Run shellcheck and the full plugin test suite in CI.
 - [ ] Update README, `AGENTS.md`, configuration examples, and generated-file documentation.
