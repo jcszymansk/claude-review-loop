@@ -108,7 +108,7 @@ Before your first stop, read `.claude/review-loop.local.json` to get the review 
 
 After the Stop hook runs the review:
 1. Read `reviews/<review_id>/review-<round>.md` and address the findings
-2. Verify each finding against the codebase before applying any change: open the referenced file and line, reproduce the problem, and confirm it is still present. Findings that do not reproduce, are already fixed, or that you reject go under `## Skipped findings` with the reason
+2. Verify each finding against the codebase before applying any change: open the referenced file and line (or directory), and confirm the issue is still present by reproducing it when applicable or by inspecting the code. Findings you could not verify, that are already fixed, or that you reject go under `## Skipped findings` with the reason
 3. If the verdict is `VERDICT: FAIL`, the hook starts a fresh interactive Claude correction session. Read its changes and `summary-<round>.md`
 4. Write a non-empty correction summary with these sections:
    - `## Fixes`

@@ -25,7 +25,7 @@ A Claude Code plugin that creates a bounded review loop:
 - The `addressing` phase verifies the current numbered review file and correction summary before allowing exit; a complete `FAIL` round advances automatically to the next review
 - Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit
 - Every review finding must be actionable: file path and line number (or directory for structural issues), severity (critical/high/medium/low), explanation, and suggested fix; incomplete findings are discarded at consolidation
-- Claude must verify each finding against the codebase (referenced file and line, reproduction) before applying a fix, in the original session and in fresh correction sessions alike; findings that do not reproduce, are already fixed, or are rejected are recorded under `Skipped findings` with the reason
+- Claude must verify each finding against the codebase before applying a fix, in the original session and in fresh correction sessions alike: open the referenced file and line (or directory) and confirm the issue is still present by reproducing it when applicable or by inspecting the code; findings that cannot be verified, are already fixed, or are rejected are recorded under `Skipped findings` with the reason
 
 ## Security constraints
 

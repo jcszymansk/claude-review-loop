@@ -11,11 +11,12 @@ Read __REVIEW_FILE__ and address the findings:
 1. Read the review carefully
 2. For each item, independently decide if you agree
 3. Verify each item against the codebase before changing anything: open the
-   referenced file and line, reproduce the problem, and confirm it is still
-   present
+   referenced file and line (or directory), and confirm the issue is still
+   present by reproducing it when applicable or by inspecting the code
 4. For items you AGREE with and verified: implement the fix
-5. For items you DISAGREE with, or that do not reproduce or are already
-   fixed: briefly note why you are skipping them under Skipped findings
+5. For items you DISAGREE with, that you could not verify, or that are
+   already fixed: briefly note why you are skipping them under Skipped
+   findings
 6. Focus on critical and high severity items first
 7. Write a non-empty summary to __SUMMARY_FILE__ with these Markdown sections:
    ## Fixes

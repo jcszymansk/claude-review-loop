@@ -197,14 +197,28 @@ case "$claude_prompt" in
     ;;
 esac
 case "$claude_prompt" in
-  *"do not reproduce, are already fixed"*"Skipped findings with the reason"*) ;;
+  *"file and line (or directory)"*) ;;
+  *)
+    printf 'FAIL: correction prompt dropped the directory allowance for structural findings\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"reproducing it when applicable"*"by inspecting the code"*) ;;
+  *)
+    printf 'FAIL: correction prompt did not allow static findings verified by inspection\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"could not verify, that are already fixed"*"findings with the reason"*) ;;
   *)
     printf 'FAIL: correction prompt did not route unverified findings to skipped findings\n' >&2
     exit 1
     ;;
 esac
 case "$claude_prompt" in
-  *"performed for each fix in the Fixes section"*) ;;
+  *"performed for each"*"fix in the Fixes section"*) ;;
   *)
     printf 'FAIL: correction prompt did not require recording fix verification\n' >&2
     exit 1
@@ -292,7 +306,7 @@ jq -e '
   and (.reason | contains("review-*.md"))
   and (.reason | contains("summary-*.md"))
   and (.reason | contains("Verify each finding against the codebase before applying"))
-  and (.reason | contains("reproduce the problem"))
+  and (.reason | contains("reproducing it when applicable"))
 ' <<< "$fallback_output" >/dev/null
 
 printf 'correction session tests passed\n'

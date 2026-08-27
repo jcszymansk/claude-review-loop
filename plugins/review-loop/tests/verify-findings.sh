@@ -57,14 +57,21 @@ case "$reason" in
     ;;
 esac
 case "$reason" in
-  *"reproduce the problem"*"confirm it is still"*) ;;
+  *"file and line (or directory)"*) ;;
   *)
-    printf 'FAIL: addressing review prompt dropped the reproduction check\n' >&2
+    printf 'FAIL: addressing review prompt dropped the directory allowance for structural findings\n' >&2
     exit 1
     ;;
 esac
 case "$reason" in
-  *"do not reproduce or are already"*"Skipped findings"*) ;;
+  *"reproducing it when applicable"*"by inspecting the code"*) ;;
+  *)
+    printf 'FAIL: addressing review prompt did not allow static findings verified by inspection\n' >&2
+    exit 1
+    ;;
+esac
+case "$reason" in
+  *"could not verify, or that are"*"Skipped"*"findings"*) ;;
   *)
     printf 'FAIL: addressing review prompt did not route unverified findings to skipped findings\n' >&2
     exit 1
@@ -88,9 +95,16 @@ case "$command_doc" in
     ;;
 esac
 case "$command_doc" in
-  *"do not reproduce, are already fixed"*"## Skipped findings"*) ;;
+  *"could not verify, that are already fixed"*"## Skipped findings"*) ;;
   *)
     printf 'FAIL: review-loop command doc did not route unverified findings to skipped findings\n' >&2
+    exit 1
+    ;;
+esac
+case "$command_doc" in
+  *"reproducing it when applicable"*"by inspecting the code"*) ;;
+  *)
+    printf 'FAIL: review-loop command doc did not allow static findings verified by inspection\n' >&2
     exit 1
     ;;
 esac
