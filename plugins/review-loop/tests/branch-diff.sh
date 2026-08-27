@@ -43,9 +43,11 @@ git -C "$PROJECT_DIR" remote add origin "$TMP_DIR/origin.git"
 git -C "$PROJECT_DIR" push origin main >/dev/null
 git -C "$PROJECT_DIR" remote set-head origin main
 git -C "$PROJECT_DIR" checkout -b feature >/dev/null
-printf 'branch-only\n' > "$PROJECT_DIR/branch.txt"
-git -C "$PROJECT_DIR" add branch.txt
-git -C "$PROJECT_DIR" commit -m feature >/dev/null
+for commit_number in 1 2 3 4 5 6; do
+  printf 'branch-%s\n' "$commit_number" > "$PROJECT_DIR/branch-$commit_number.txt"
+  git -C "$PROJECT_DIR" add "branch-$commit_number.txt"
+  git -C "$PROJECT_DIR" commit -m "feature $commit_number" >/dev/null
+done
 printf 'staged-only\n' > "$PROJECT_DIR/staged.txt"
 git -C "$PROJECT_DIR" add staged.txt
 printf 'worktree-only\n' > "$PROJECT_DIR/worktree.txt"
@@ -75,9 +77,9 @@ jq -e '.phase == "addressing"' \
 
 branch_diff=$(cat "$PROJECT_DIR/reviews/$REVIEW_ID/branch-diff.md")
 case "$branch_diff" in
-  *'Branch: feature'*'Base: '*'(merge-base with origin/main)'*'+branch-only'*'+staged-only'*'+worktree-only'*) ;;
+  *'Branch: feature'*'Base: '*'(merge-base with origin/main)'*'+branch-1'*'+branch-6'*'+staged-only'*'+worktree-only'*) ;;
   *)
-    printf 'FAIL: branch diff omitted branch, base, staged, or worktree changes\n' >&2
+    printf 'FAIL: branch diff omitted deep branch, base, staged, or worktree changes\n' >&2
     exit 1
     ;;
 esac
@@ -102,5 +104,45 @@ case "$review_prompt" in
     exit 1
     ;;
 esac
+
+git -C "$PROJECT_DIR" push --set-upstream origin feature >/dev/null
+git -C "$PROJECT_DIR" symbolic-ref --delete refs/remotes/origin/HEAD
+SECOND_REVIEW_ID="20260827-070601-fedcba"
+rm -f "$PROJECT_DIR/.claude/review-loop.local.json"
+mkdir -p "$PROJECT_DIR/reviews/$SECOND_REVIEW_ID"
+printf '# Review Loop Task Context\n\nupstream fallback test\n' > \
+  "$PROJECT_DIR/reviews/$SECOND_REVIEW_ID/summary-0.md"
+cat > "$PROJECT_DIR/.claude/review-loop.local.json" <<STATE_EOF
+{
+  "active": true,
+  "phase": "task",
+  "reviewer": "codex",
+  "task": "test upstream fallback",
+  "round": 1,
+  "max_rounds": 3,
+  "review_id": "$SECOND_REVIEW_ID",
+  "started_at": "2026-08-27T07:06:01Z"
+}
+STATE_EOF
+
+output=$(cd "$PROJECT_DIR" && \
+  env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_PROMPT_FILE="$PROMPT_CAPTURE" \
+  "$HOOK" <<< '{}')
+jq -e '.decision == "block"' <<< "$output" >/dev/null
+upstream_fallback_diff=$(cat "$PROJECT_DIR/reviews/$SECOND_REVIEW_ID/branch-diff.md")
+case "$upstream_fallback_diff" in
+  *'(merge-base with main)'*) ;;
+  *)
+    printf 'FAIL: feature upstream was not rejected in favor of main\n' >&2
+    exit 1
+    ;;
+esac
+case "$upstream_fallback_diff" in
+  *'origin/feature'*)
+    printf 'FAIL: feature upstream hid committed branch changes\n' >&2
+    exit 1
+    ;;
+esac
+
 
 printf 'branch diff tests passed\n'

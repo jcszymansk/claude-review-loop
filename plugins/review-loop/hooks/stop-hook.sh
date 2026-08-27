@@ -267,6 +267,8 @@ compute_branch_diff() {
   local base_ref
   local merge_base
   local candidate
+  local candidate_ref
+  local upstream_branch
   local untracked_file
 
   if ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -287,21 +289,38 @@ compute_branch_diff() {
 
   current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached HEAD')
   base_ref=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  if [ -n "$base_ref" ] && ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
+  if [ -n "$base_ref" ] &&
+    { [ "$base_ref" = "$current_branch" ] ||
+      ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; }; then
     base_ref=""
   fi
 
   if [ -z "$base_ref" ]; then
-    for candidate in main master develop; do
-      if [ "$candidate" != "$current_branch" ] &&
-        git rev-parse --verify "$candidate^{commit}" >/dev/null 2>&1; then
-        base_ref="$candidate"
-        break
+    base_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    if [ -n "$base_ref" ] &&
+      { [ "$base_ref" = "$current_branch" ] ||
+        ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; }; then
+      base_ref=""
+    fi
+    if [ -n "$base_ref" ]; then
+      upstream_branch="${base_ref#*/}"
+      if [ "$upstream_branch" = "$current_branch" ] &&
+        [ "$current_branch" != "main" ] &&
+        [ "$current_branch" != "master" ]; then
+        base_ref=""
       fi
-      if git rev-parse --verify "origin/$candidate^{commit}" >/dev/null 2>&1; then
-        base_ref="origin/$candidate"
-        break
-      fi
+    fi
+  fi
+
+  if [ -z "$base_ref" ]; then
+    for candidate in main master; do
+      for candidate_ref in "$candidate" "origin/$candidate"; do
+        if [ "$candidate_ref" != "$current_branch" ] &&
+          git rev-parse --verify "$candidate_ref^{commit}" >/dev/null 2>&1; then
+          base_ref="$candidate_ref"
+          break 2
+        fi
+      done
     done
   fi
 
