@@ -141,8 +141,12 @@ if [ "$runner_status" -ne 7 ]; then
   printf 'FAIL: runner masked reviewer exit status: %s\n' "$runner_status" >&2
   exit 1
 fi
-if [ "$(cat "$REVIEW_FILE")" != "$expected_output" ]; then
-  printf 'FAIL: runner did not capture output from a failed reviewer\n' >&2
+if [ -f "$REVIEW_FILE" ]; then
+  printf 'FAIL: failed reviewer artifact remained in the canonical review path\n' >&2
+  exit 1
+fi
+if [ "$(cat "$REVIEW_FILE.reviewer-error")" != "$expected_output" ]; then
+  printf 'FAIL: runner did not preserve output from a failed reviewer\n' >&2
   exit 1
 fi
 jq '.phase = "task" | .round = 5' "$STATE_FILE" > "$STATE_FILE.tmp"

@@ -43,3 +43,4 @@ A Claude Code plugin that creates a bounded review loop:
 - Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
 - Test addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, and approves only when a valid `PASS` verdict exists.
 - Run `tests/cancellation.sh` to verify reviewer and correction-session processes stop while review history remains.
+- Run `tests/reviewer-errors.sh` to verify a reviewer that exits non-zero (crash, crash after writing a verdict, or killed by a timeout) never reports PASS: the artifact is preserved as `review-<round>.md.reviewer-error`, the retry gate prompts a rerun, and the loop fails open while keeping history.
