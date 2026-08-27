@@ -14,13 +14,17 @@ REVIEW_FILE="$REVIEW_DIR/review-1.md"
 REVIEWER_PID_FILE="$TMP_DIR/reviewer.pid"
 RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 HOOK_PID=""
+REVIEWER_PID=""
 
 cleanup() {
-  if [ -n "$HOOK_PID" ] && kill -0 "$HOOK_PID" 2>/dev/null; then
-    kill -TERM "$HOOK_PID" 2>/dev/null || true
-    sleep 0.1
-    kill -KILL "$HOOK_PID" 2>/dev/null || true
-  fi
+  set +e
+  for pid in "$HOOK_PID" "$REVIEWER_PID"; do
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 0.1
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -248,11 +252,13 @@ write_state
 ) &
 HOOK_PID=$!
 wait_for_file "$REVIEWER_PID_FILE"
-kill -TERM "$(cat "$REVIEWER_PID_FILE")"
+REVIEWER_PID=$(cat "$REVIEWER_PID_FILE")
+kill -TERM "$REVIEWER_PID"
 wait "$HOOK_PID" || true
 HOOK_PID=""
 assert_reviewer_failed "$(cat "$TMP_DIR/hang-hook-output")"
-assert_stopped "$(cat "$REVIEWER_PID_FILE")"
+assert_stopped "$REVIEWER_PID"
+REVIEWER_PID=""
 [ ! -e "$REVIEW_FILE.reviewer-error.1" ]
 [ ! -e "$PROJECT_DIR/.claude/review-loop-child.pid" ]
 grep -q 'exit=143' "$PROJECT_DIR/.claude/review-loop.log"
