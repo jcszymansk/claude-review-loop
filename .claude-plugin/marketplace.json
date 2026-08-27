@@ -14,7 +14,7 @@
       "author": {
         "name": "Hamel Husain"
       },
-      "repository": "https://github.com/hamelsmu/claude-review-loop",
+      "repository": "https://github.com/jcszymansk/claude-review-loop",
       "license": "MIT",
       "keywords": ["code-review", "codex", "quality", "automation"]
     }

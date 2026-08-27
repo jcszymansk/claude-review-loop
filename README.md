@@ -41,6 +41,7 @@ warning and the hook falls back to the local branch diff.
 ## Requirements
 
 - One reviewer CLI: [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Cursor Agent](https://docs.cursor.com/en/cli)
+- The Claude Code CLI (`claude`) — required for the fresh correction session that starts when a review returns `FAIL`
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
 - `curl` — required only for GitHub or Gitea pull request scoping
 
@@ -63,14 +64,14 @@ multi_agent = true
 From the CLI:
 
 ```bash
-claude plugin marketplace add hamelsmu/claude-review-loop
+claude plugin marketplace add jcszymansk/claude-review-loop
 claude plugin install review-loop@hamel-review
 ```
 
 Or from within a Claude Code session:
 
 ```
-/plugin marketplace add hamelsmu/claude-review-loop
+/plugin marketplace add jcszymansk/claude-review-loop
 /plugin install review-loop@hamel-review
 ```
 
@@ -112,48 +113,57 @@ children. The `reviews/<id>/` history remains on disk.
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
-2. If in `task` phase: writes a numbered reviewer runner and prompt file, runs the configured reviewer for the current round, and transitions to `addressing`
+2. If in `task` phase: renders the review prompt, writes a numbered reviewer runner script, runs the configured reviewer for the current round, and transitions to `addressing`
 3. If the review verdict is `FAIL`, the hook starts one fresh interactive Claude correction session with the review context
 4. After the correction summary is complete, the hook advances the round and reruns the reviewer automatically
 5. A `PASS` allows exit after its correction summary is complete; repeated failures end with `MAX_ROUNDS_REACHED` and preserve the review history
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`. Each loop gets a directory under `reviews/` containing `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs.
+The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and correction sessions run with `REVIEW_LOOP_CORRECTION=1` so they cannot recursively start another review.
+
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid` and `review-loop-retries` used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
 
 ## File structure
 
 ```
 claude-review-loop/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin manifest
-├── commands/
-│   ├── review-loop.md        # /review-loop slash command
-│   └── cancel-review.md      # /cancel-review slash command
-├── hooks/
-│   ├── hooks.json            # Stop hook registration (30s timeout)
-│   └── stop-hook.sh          # Core lifecycle engine
-├── scripts/
-│   ├── setup-review-loop.sh  # Argument parsing, state file creation
-│   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
-│   ├── resolve-max-rounds.sh # Round-limit selection and validation
-│   ├── run-reviewer.sh        # Codex, Gemini, and Cursor dispatch
-│   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
-│   ├── cancel-review-loop.sh  # Stop active loop child processes
-│   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
-├── prompts/
-│   ├── review-base.md              # Shared reviewer instructions
-│   ├── review-spec.md              # Conditional specification and plan review
-│   ├── review-nextjs.md            # Conditional Next.js review instructions
-│   ├── review-ux.md                # Conditional browser UX review instructions
-│   ├── review-consolidation.md     # Finding consolidation instructions
-│   ├── correction-session.md        # Claude correction-session instructions
-│   ├── addressing-correction.md     # Correction handoff message
-│   ├── addressing-review.md         # Review handoff message
-│   ├── addressing-summary.md        # Incomplete summary message
-│   ├── addressing-verdict.md        # Malformed verdict message
-│   └── addressing-missing-review.md # Missing review message
-├── AGENTS.md                  # Agent operating guidelines
-├── CLAUDE.md                  # Symlink to AGENTS.md
-└── README.md
+│   └── marketplace.json           # Marketplace manifest
+├── .github/workflows/
+│   └── ci.yml                     # shellcheck + test suite
+├── README.md
+├── ROADMAP.md                     # Task roadmap
+└── plugins/review-loop/
+    ├── .claude-plugin/
+    │   └── plugin.json            # Plugin manifest
+    ├── commands/
+    │   ├── review-loop.md         # /review-loop slash command
+    │   └── cancel-review.md       # /cancel-review slash command
+    ├── hooks/
+    │   ├── hooks.json             # Stop hook registration (600s timeout)
+    │   └── stop-hook.sh           # Core lifecycle engine
+    ├── scripts/
+    │   ├── setup-review-loop.sh   # Argument parsing, state file creation
+    │   ├── resolve-reviewer.sh    # Reviewer selection and config precedence
+    │   ├── resolve-max-rounds.sh  # Round-limit selection and validation
+    │   ├── run-reviewer.sh        # Codex, Gemini, and Cursor dispatch
+    │   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
+    │   ├── cancel-review-loop.sh  # Stop active loop child processes
+    │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
+    ├── prompts/
+    │   ├── review-base.md              # Shared reviewer instructions
+    │   ├── review-spec.md              # Conditional specification and plan review
+    │   ├── review-nextjs.md            # Conditional Next.js review instructions
+    │   ├── review-ux.md                # Conditional browser UX review instructions
+    │   ├── review-consolidation.md     # Finding consolidation instructions
+    │   ├── correction-session.md       # Claude correction-session instructions
+    │   ├── addressing-correction.md    # Correction handoff message
+    │   ├── addressing-review.md        # Review handoff message
+    │   ├── addressing-summary.md       # Incomplete summary message
+    │   ├── addressing-verdict.md       # Malformed verdict message
+    │   └── addressing-missing-review.md # Missing review message
+    ├── tests/                     # Shell test suite, one file per lifecycle area
+    ├── AGENTS.md                  # Agent operating guidelines
+    └── CLAUDE.md                  # Symlink to AGENTS.md
 ```
 
 ## Configuration

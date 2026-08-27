@@ -17,6 +17,9 @@ A Claude Code plugin that creates a bounded review loop:
 - Each loop gets a validated `reviews/<review_id>/` directory containing `branch-diff.md`, `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome.
 - Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; a non-zero reviewer exit preserves the artifact as a numbered `review-<round>.md.reviewer-error.<n>` file so a failed review can never be accepted as PASS; the active child PID is tracked in `.claude/review-loop-child.pid`.
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
+- The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict is treated as `FAIL` and blocks exit until the review is fixed or rerun
+- A missing review artifact prompts Claude to rerun the generated runner script once (counted in `.claude/review-loop-retries`); on the second stop without an artifact the hook fails open
+- Fresh correction sessions run with `REVIEW_LOOP_CORRECTION=1`; the hook approves their exit immediately so a correction session can never recursively start another review
 - `REVIEW_LOOP_PR` or `--pr <url>` selects a GitHub or Gitea pull request; the hook fetches its diff with `curl` and falls back to the local branch diff with a warning when the fetch fails
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
@@ -36,13 +39,34 @@ A Claude Code plugin that creates a bounded review loop:
 
 ## Testing
 
-- After modifying stop-hook.sh, test all paths: no-state, task→block, addressing-without-review→block, addressing-with-review→approve
-- Verify JSON output with `jq .` for each path
-- Test with Codex unavailable (should block with install instructions)
-- Test with malformed state files (should fail-open)
-- Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
-- Test addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, and approves only when a valid `PASS` verdict exists.
-- Run `tests/cancellation.sh` to verify reviewer and correction-session processes stop while review history remains.
-- Run `tests/reviewer-errors.sh` to verify a reviewer that exits non-zero (crash, crash after writing a verdict, or killed by a timeout) never reports PASS: each failed attempt is preserved as a numbered `review-<round>.md.reviewer-error.<n>` artifact, the canonical review path stays vacant so the retry gate takes over, and the loop fails open while keeping history.
-- Run `tests/command-construction.sh` to verify `run-reviewer.sh` builds the exact per-provider command (flags, prompt as argument for codex/gemini vs stdin for cursor) with default and overridden flags, rejects unsupported reviewers with exit 2, and captures or quarantines review artifacts by verdict and exit status.
-- Run `tests/concurrent-isolation.sh` to verify two loops in one repository (root and nested directory) running concurrently keep separate state, prompts, runner scripts, logs, and review history, and that one loop's cleanup never touches the other's files.
+After modifying `stop-hook.sh`, test all paths: no-state, task→block, addressing-without-review→block, addressing-with-review→approve. Verify JSON output with `jq .` for each path, test with the reviewer CLI unavailable (should block with install instructions), and test with malformed state files (should fail-open). Verify `transition_phase` updates the state file and `parse_field` reads the new value, and that the addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, approving only when a valid `PASS` verdict exists.
+
+Each `tests/*.sh` is self-contained: it builds a sandboxed project with fake CLIs and a fake HOME, runs the hook or scripts, and asserts observable outcomes. Run the full suite the way CI does:
+
+```bash
+cd plugins/review-loop/tests
+for test in *.sh; do bash "$test"; done
+```
+
+CI also runs `shellcheck -x plugins/review-loop/hooks/*.sh plugins/review-loop/scripts/*.sh plugins/review-loop/tests/*.sh`. Coverage by script:
+
+- `first-round-pass.sh` — `PASS` on the first round approves exit, removes runtime state, keeps every artifact
+- `iterative-rounds.sh` — `FAIL → PASS` across two rounds; repeated `FAIL` until the round limit, ending in `MAX_ROUNDS_REACHED` with review history kept
+- `round-limit.sh` — `resolve-max-rounds.sh` precedence (env → project config → user config → default `3`), invalid value rejection, and setup state
+- `malformed-verdicts.sh` — absent and malformed verdicts, missing artifacts, retry gate, orphaned state
+- `reviewer-errors.sh` — reviewer non-zero exit and timeout never report PASS: each failed attempt is preserved as a numbered `review-<round>.md.reviewer-error.<n>` artifact, the canonical review path stays vacant so the retry gate takes over, and the loop fails open while keeping history
+- `runner-capture.sh` — the runner script captures reviewer output into the current round artifact
+- `cancellation.sh` — `/cancel-review` stops reviewer and correction-session child processes while review history remains
+- `nested-worktrees.sh` — nested working directories and git worktrees keep state and artifacts in the session directory
+- `concurrent-isolation.sh` — two loops in one repository (root and nested directory) keep separate state, prompts, runner scripts, logs, and review history; one loop's cleanup never touches the other's files
+- `resolve-reviewer.sh` — reviewer precedence (`REVIEW_LOOP_REVIEWER` → project config → user config → default) and malformed config rejection
+- `reviewer-availability.sh` — missing CLI blocks with install instructions and leaves no generated runtime files; retry gate and cancellation instructions
+- `command-construction.sh` — `run-reviewer.sh` builds the exact per-provider command (flags, prompt as argument for codex/gemini vs stdin for cursor) with default and overridden flags, rejects unsupported reviewers with exit 2, and captures or quarantines review artifacts by verdict and exit status
+- `legacy-codex.sh` — Codex behavior without reviewer configuration, including legacy state files
+- `correction-session.sh` — fresh interactive correction session launch, review/summary prompt paths, and fallback when `claude` is unavailable
+- `branch-diff.sh` — current branch diff scope, upstream fallback, unborn repositories, and untracked files
+- `pr-scope.sh` — GitHub and Gitea pull request diff scoping with local branch fallback and warning
+- `review-sections.sh` — conditional diff, architecture, framework, and UX review sections
+- `spec-compliance.sh` — spec-compliance review when a specification or plan exists
+- `actionable-findings.sh` — findings must carry file, line, severity, explanation, and suggested fix
+- `verify-findings.sh` — Claude must verify each finding against the codebase before applying it
