@@ -23,7 +23,7 @@ printf '%s\n' "$count" > "$FAKE_COUNT_FILE"
 if [ "${FAKE_ALWAYS_FAIL:-}" = "1" ] || [ "$count" -eq 1 ]; then
   printf 'VERDICT: FAIL\nneeds correction\n'
 else
-  printf 'VERDICT: PASS\nno remaining findings\n'
+  printf 'VERDICT: PASS\ncurrent round review\n'
 fi
 CODEX_EOF
 chmod +x "$BIN_DIR/codex"
@@ -106,6 +106,8 @@ write_summary "$PASS_PROJECT" "$PASS_REVIEW_ID" 2
 grep -Fq 'needs correction' \
   "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
 grep -Fq 'addressed findings for round 1' \
+  "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
+! grep -Fq 'current round review' \
   "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
 
 output=$(run_hook "$PASS_PROJECT" "$PASS_HOME" "$PASS_COUNT")

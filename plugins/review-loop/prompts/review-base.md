@@ -5,6 +5,8 @@ __TASK__
 
 Prior round history:
 __PRIOR_ROUND_HISTORY__
+Prior history is context only. Review the current repository state independently; do not treat any current-round artifact as prior history.
+
 
 Review the changes against the original task and flag missing or incorrect requested behavior.
 
