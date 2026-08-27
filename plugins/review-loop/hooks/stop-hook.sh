@@ -68,6 +68,7 @@ clear_child_pid() {
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
+PR_URL_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-pr-url.sh"
 PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
 STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
 case "$STOP_HOOK_SCRIPT" in
@@ -97,6 +98,7 @@ if ! jq -e '
   and (.round | type == "number" and . >= 0)
   and (.max_rounds | type == "number" and . >= 1)
   and (.review_id | type == "string")
+  and ((has("pr_url") | not) or (.pr_url | type == "string"))
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
   cleanup_runtime_files
@@ -186,12 +188,17 @@ if ! ACTIVE=$(parse_field "active") ||
   ! TASK=$(parse_field "task") ||
   ! ROUND=$(parse_field "round") ||
   ! MAX_ROUNDS=$(parse_field "max_rounds") ||
-  ! REVIEW_ID=$(parse_field "review_id"); then
+  ! REVIEW_ID=$(parse_field "review_id") ||
+  ! PR_URL=$(parse_field "pr_url"); then
   log "ERROR: failed to read JSON state file"
   cleanup_runtime_files
   printf '{"decision":"approve"}\n'
   exit 0
 fi
+if [ "$PR_URL" = "null" ]; then
+  PR_URL=""
+fi
+REVIEW_SCOPE="local branch diff"
 
 if [ -z "$REVIEWER" ] || [ "$REVIEWER" = "null" ]; then
   # State files without reviewer selection always use Codex.
@@ -349,6 +356,102 @@ compute_branch_diff() {
     done < <(git ls-files --others --exclude-standard -z 2>/dev/null || true)
   } > "$output_file"
 }
+compute_pr_diff() {
+  local output_file="$1"
+  local pr_details
+  local provider
+  local scheme
+  local host
+  local owner
+  local repository
+  local number
+  local diff_url
+  local auth_header=""
+  local temp_file="${output_file}.tmp.$$"
+
+  if ! pr_details=$("$PR_URL_RESOLVER" "$PR_URL" 2>>"$LOG_FILE"); then
+    return 1
+  fi
+  IFS=$'\t' read -r provider scheme host owner repository number <<< "$pr_details"
+
+  case "$provider" in
+    github)
+      diff_url="${scheme}://${host}/${owner}/${repository}/pull/${number}.diff"
+      if [ -n "${GITHUB_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
+      fi
+      ;;
+    gitea)
+      diff_url="${scheme}://${host}/api/v1/repos/${owner}/${repository}/pulls/${number}.diff"
+      if [ -n "${GITEA_TOKEN:-}" ]; then
+        auth_header="Authorization: token ${GITEA_TOKEN}"
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log "ERROR: curl is required for pull request scope (url=$PR_URL)"
+    return 1
+  fi
+
+  if [ -n "$auth_header" ]; then
+    if ! curl --fail --silent --show-error --location --connect-timeout 10 \
+      --max-time 60 -H "$auth_header" "$diff_url" > "$temp_file" 2>>"$LOG_FILE"; then
+      rm -f "$temp_file"
+      return 1
+    fi
+  elif ! curl --fail --silent --show-error --location --connect-timeout 10 \
+    --max-time 60 "$diff_url" > "$temp_file" 2>>"$LOG_FILE"; then
+    rm -f "$temp_file"
+    return 1
+  fi
+
+  if ! {
+    printf '# Branch diff\n\n'
+    printf 'Pull request: %s\n' "$PR_URL"
+    printf 'Source: %s\n\n' "$diff_url"
+    cat "$temp_file"
+  } > "$output_file"; then
+    rm -f "$temp_file"
+    return 1
+  fi
+  rm -f "$temp_file"
+}
+
+compute_review_diff() {
+  local output_file="$1"
+  local fallback_file="${output_file}.fallback.$$"
+  if [ -z "$PR_URL" ]; then
+    REVIEW_SCOPE="local branch diff"
+    compute_branch_diff "$output_file"
+    return $?
+  fi
+
+  if compute_pr_diff "$output_file"; then
+    REVIEW_SCOPE="pull request diff"
+    log "Fetched pull request diff (review_id=$REVIEW_ID, url=$PR_URL)"
+    return 0
+  fi
+  REVIEW_SCOPE="local branch diff (pull request fetch failed; see warning in artifact)"
+  log "WARN: failed to fetch pull request diff; falling back to branch diff (review_id=$REVIEW_ID, url=$PR_URL)"
+  if ! compute_branch_diff "$fallback_file"; then
+    rm -f "$fallback_file"
+    return 1
+  fi
+  if ! {
+    cat "$fallback_file"
+    printf '\n--- Pull request scope fallback ---\n'
+    printf 'Pull request: %s\n' "$PR_URL"
+    printf 'WARNING: Failed to fetch the pull request diff. Reviewing the current branch diff instead.\n'
+  } > "$output_file"; then
+    rm -f "$fallback_file"
+    return 1
+  fi
+  rm -f "$fallback_file"
+}
 
 
 # ── Prompt templates ───────────────────────────────────────────────────────
@@ -427,6 +530,8 @@ render_prompt_template() {
   replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
   replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
   replace_prompt_placeholder "__TASK__" "$TASK"
+  replace_prompt_placeholder "__PR_URL__" "$PR_URL"
+  replace_prompt_placeholder "__REVIEW_SCOPE__" "$REVIEW_SCOPE"
   replace_prompt_placeholder "__PRIOR_ROUND_HISTORY__" "$PRIOR_ROUND_HISTORY"
   printf '%s\n' "$template"
 }
@@ -562,7 +667,7 @@ case "$PHASE" in
       exit 0
     fi
     BRANCH_DIFF_FILE="${REVIEW_DIR}/branch-diff.md"
-    if ! compute_branch_diff "$BRANCH_DIFF_FILE"; then
+    if ! compute_review_diff "$BRANCH_DIFF_FILE"; then
       log "ERROR: failed to write branch diff: $BRANCH_DIFF_FILE"
       cleanup_runtime_files
       printf '{"decision":"approve"}\n'

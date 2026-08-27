@@ -23,18 +23,25 @@ The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Code
 
 | Agent | Always runs? | Focus |
 |-------|-------------|-------|
-| **Diff Review** | Yes | Current branch diff, including staged, unstaged, and untracked changes, plus code quality, test coverage, and security (OWASP top 10) |
+| **Diff Review** | Yes | Current branch diff, or the selected GitHub/Gitea pull request diff, plus code quality, test coverage, and security (OWASP top 10) |
 | **Holistic Review** | Yes | Project structure, documentation, AGENTS.md, agent harness, architecture |
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
 Each loop stores its branch diff and conversation artifacts together under `reviews/<id>/`: `branch-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
 
+Set `REVIEW_LOOP_PR` to a GitHub or Gitea pull request URL to review that
+pull request instead of the local branch diff. The setup script also accepts
+`--pr <url>`. `GITHUB_TOKEN` and `GITEA_TOKEN` provide optional private-repository
+authentication. If fetching the remote diff fails, the artifact records a
+warning and the hook falls back to the local branch diff.
+
 
 ## Requirements
 
 - One reviewer CLI: [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Cursor Agent](https://docs.cursor.com/en/cli)
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
+- `curl` — required only for GitHub or Gitea pull request scoping
 
 
 ### Codex multi-agent
@@ -127,7 +134,8 @@ claude-review-loop/
 │   ├── setup-review-loop.sh  # Argument parsing, state file creation
 │   ├── resolve-reviewer.sh   # Reviewer selection and config precedence
 │   ├── resolve-max-rounds.sh # Round-limit selection and validation
-│   ├── run-reviewer.sh       # Codex, Gemini, and Cursor dispatch
+│   ├── run-reviewer.sh        # Codex, Gemini, and Cursor dispatch
+│   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
 │   ├── cancel-review-loop.sh  # Stop active loop child processes
 │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
 ├── prompts/
@@ -183,6 +191,9 @@ limit causes setup to fail instead of silently falling back to another source.
 |----------|---------|-------------|
 | `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. |
 | `REVIEW_LOOP_MAX_ROUNDS` | `3` | Maximum review rounds, from 1 to 10. Overrides project and user configuration. |
+| `REVIEW_LOOP_PR` | unset | Optional GitHub or Gitea pull request URL; scopes the review diff to that pull request. |
+| `GITHUB_TOKEN` | unset | Optional token used to fetch private GitHub pull request diffs. |
+| `GITEA_TOKEN` | unset | Optional token used to fetch private Gitea pull request diffs. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
 | `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Override the flags passed to `gemini` after its non-interactive prompt. |
 | `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |

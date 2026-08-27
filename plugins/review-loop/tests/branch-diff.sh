@@ -104,6 +104,26 @@ case "$review_prompt" in
     exit 1
     ;;
 esac
+case "$review_prompt" in
+  *'__PR_URL__'*)
+    printf 'FAIL: branch review prompt retained PR placeholder\n' >&2
+    exit 1
+    ;;
+esac
+case "$review_prompt" in
+  *'When the active diff scope starts with `local branch diff`, read the full project directory structure'*) ;;
+  *)
+    printf 'FAIL: no-PR review prompt lost full holistic review\n' >&2
+    exit 1
+    ;;
+esac
+case "$review_prompt" in
+  *'holistic and conditional agents retain their documented full-project review coverage'*) ;;
+  *)
+    printf 'FAIL: local branch scope lost holistic review coverage\n' >&2
+    exit 1
+    ;;
+esac
 
 git -C "$PROJECT_DIR" push --set-upstream origin feature >/dev/null
 git -C "$PROJECT_DIR" symbolic-ref --delete refs/remotes/origin/HEAD

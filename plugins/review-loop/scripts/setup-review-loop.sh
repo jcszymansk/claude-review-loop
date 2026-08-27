@@ -5,12 +5,21 @@ set -euo pipefail
 # Creates state file and prepares the review loop lifecycle.
 
 ARGS=()
+PR_URL="${REVIEW_LOOP_PR:-}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --pr)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --pr requires a pull request URL."
+        exit 1
+      fi
+      PR_URL="$2"
+      shift 2
+      ;;
     --help|-h)
       cat << 'HELP'
-Usage: /review-loop <task description>
+Usage: /review-loop [--pr <url>] <task description>
 
 Starts a review loop:
   1. Claude implements your task
@@ -20,6 +29,7 @@ Starts a review loop:
 Environment variables:
   REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor
   REVIEW_LOOP_MAX_ROUNDS  Maximum review rounds, from 1 to 10 (default: 3)
+  REVIEW_LOOP_PR  Optional GitHub or Gitea pull request URL to review
   REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
   REVIEW_LOOP_GEMINI_FLAGS  Override Gemini flags (default: --output-format text)
   REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text)
@@ -32,6 +42,7 @@ The reviewer is resolved in this order: REVIEW_LOOP_REVIEWER, project
 configuration, user configuration, then codex. The round limit is resolved
 from REVIEW_LOOP_MAX_ROUNDS, project configuration, user configuration, then
 the default of 3.
+  --pr <url> scopes the review to a GitHub or Gitea pull request
 
 Configuration format:
   reviewer = "cursor"
@@ -53,6 +64,10 @@ done
 PROMPT="${ARGS[*]:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "$PR_URL" ] && ! "$SCRIPT_DIR/resolve-pr-url.sh" "$PR_URL" >/dev/null; then
+  echo "Error: invalid pull request URL: $PR_URL"
+  exit 1
+fi
 REVIEWER="$("$SCRIPT_DIR/resolve-reviewer.sh")"
 
 
@@ -128,11 +143,13 @@ STATE_TEMP="${STATE_FILE}.tmp.$$"
 jq -n \
   --arg reviewer "$REVIEWER" \
   --arg task "$PROMPT" \
+  --arg pr_url "$PR_URL" \
   --argjson round 1 \
   --argjson max_rounds "$MAX_ROUNDS" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at}' \
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at} |
+   if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 

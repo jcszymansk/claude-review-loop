@@ -119,7 +119,7 @@ Combine the useful prompt changes from the forks without forcing a pull-request 
 - [x] Include the original task in every review.
 - [x] Include previous reviews and correction summaries in later rounds.
 - [x] Review the current branch diff by default.
-- [ ] Add optional GitHub and Gitea PR scoping.
+- [x] Add optional GitHub and Gitea PR scoping.
 - [ ] Add spec-compliance review when a specification or plan exists.
 - [ ] Keep diff, architecture, framework, and UX review sections where they apply.
 - [ ] Tell reviewers not to modify source files.

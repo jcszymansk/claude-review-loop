@@ -12,8 +12,27 @@ allowed-tools:
 
 First, set up the review loop by running this setup command:
 
+Set `REVIEW_LOOP_PR` or start the command with `--pr <url>` to scope the
+review to a GitHub or Gitea pull request.
+
 ```bash
 set -e
+
+PR_URL="${REVIEW_LOOP_PR:-}"
+TASK_ARGUMENTS="$ARGUMENTS"
+if [[ "$ARGUMENTS" == "--pr" || "$ARGUMENTS" == --pr[[:space:]]* ]]; then
+  if [[ "$ARGUMENTS" =~ ^--pr[[:space:]]+([^[:space:]]+)([[:space:]]+(.+))?$ ]]; then
+    PR_URL="${BASH_REMATCH[1]}"
+    TASK_ARGUMENTS="${BASH_REMATCH[3]}"
+  else
+    echo "Error: --pr requires a pull request URL."
+    exit 1
+  fi
+fi
+if [ -n "$PR_URL" ] && ! "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pr-url.sh" "$PR_URL" >/dev/null; then
+  echo "Error: invalid pull request URL: $PR_URL"
+  exit 1
+fi
 
 REVIEWER="$("${CLAUDE_PLUGIN_ROOT}/scripts/resolve-reviewer.sh")"
 case "$REVIEWER" in
@@ -62,19 +81,21 @@ if ! mkdir "$LOOP_DIR"; then
   exit 1
 fi
 
-printf '# Review Loop Task Context\n\n%s\n' "$ARGUMENTS" > "$LOOP_DIR/summary-0.md"
+printf '# Review Loop Task Context\n\n%s\n' "$TASK_ARGUMENTS" > "$LOOP_DIR/summary-0.md"
 
 
 rm -f .claude/review-loop.lock .claude/review-loop-child.pid .claude/review-loop-child.pid.tmp.*
 STATE_TEMP="${STATE_FILE}.tmp.$$"
 jq -n \
   --arg reviewer "$REVIEWER" \
-  --arg task "$ARGUMENTS" \
+  --arg task "$TASK_ARGUMENTS" \
+  --arg pr_url "$PR_URL" \
   --argjson round 1 \
   --argjson max_rounds "$MAX_ROUNDS" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at}' \
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at} |
+   if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"

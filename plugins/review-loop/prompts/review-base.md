@@ -7,6 +7,12 @@ Prior round history:
 __PRIOR_ROUND_HISTORY__
 Prior history is context only. Review the current repository state independently; do not treat any current-round artifact as prior history.
 
+Configured pull request URL (empty means no PR scope):
+__PR_URL__
+Active diff scope:
+__REVIEW_SCOPE__
+When the active diff scope is the pull request diff, every review agent MUST limit findings to the pull request diff in `__REVIEW_DIR__/branch-diff.md`. Inspect surrounding code only to understand those changed files and do not report unrelated repository, branch, worktree, documentation, architecture, or UX issues. When the active diff scope is a local branch diff, including a pull request fetch fallback, Agent 1 must focus on the changed artifact while the holistic and conditional agents retain their documented full-project review coverage.
+
 
 Review the changes against the original task and flag missing or incorrect requested behavior.
 
@@ -20,9 +26,9 @@ VERDICT: FAIL
 
 
 ---
-AGENT 1: Branch Diff Review (focus on current branch changes ONLY)
+AGENT 1: Branch Diff Review (focus on scoped changes ONLY)
 
-Read `__REVIEW_DIR__/branch-diff.md`. It contains the current branch changes relative to the detected base branch, plus staged, unstaged, and untracked worktree changes. Focus your review EXCLUSIVELY on this changed code. If the artifact says the base branch is unavailable, inspect the current worktree and branch history without assuming a fixed commit window.
+Read `__REVIEW_DIR__/branch-diff.md`. By default it contains the current branch changes relative to the detected base branch, plus staged, unstaged, and untracked worktree changes. When `REVIEW_LOOP_PR` or `--pr` selected a pull request, it contains that pull request's remote diff instead. Focus your review EXCLUSIVELY on this changed code. If the artifact says the base branch is unavailable, inspect the current worktree and branch history without assuming a fixed commit window.
 
 Review criteria for changed code:
 
@@ -53,9 +59,9 @@ For each issue: return file path, line number, severity (critical/high/medium/lo
 ---
 AGENT 2: Holistic Review (evaluate overall project structure and agent readiness)
 
-Read the full project directory structure, key config files, README, and any AGENTS.md / CLAUDE.md files. This is NOT about individual line changes — it's about whether the project is well-structured for maintainability and agent-driven development.
+When the active diff scope starts with `local branch diff`, read the full project directory structure, key config files, README, and any AGENTS.md / CLAUDE.md files. Perform the documented holistic review. When the active diff scope is `pull request diff`, read project structure, documentation, and agent configuration only as needed to understand the scoped changes, and report only problems caused by or required to understand files changed in that pull request.
 
-Review criteria for the whole project:
+Review criteria for the project, constrained by the active diff scope:
 
 Code Organization & Modularity:
 - Is the project structure logical and navigable? Can a new developer (or agent) find things?
