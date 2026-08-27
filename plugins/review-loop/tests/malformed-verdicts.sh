@@ -71,6 +71,13 @@ assert_verdict_prompt() {
       exit 1
       ;;
   esac
+  case "$(jq -r '.reason' <<< "$output")" in
+    *"missing or incomplete"*)
+      printf 'FAIL: malformed verdict %q hit the summary gate instead of the verdict gate\n' \
+        "$verdict_content" >&2
+      exit 1
+      ;;
+  esac
   [ -f "$STATE_FILE" ]
   jq -e '.phase == "addressing"' "$STATE_FILE" >/dev/null
 }
@@ -79,6 +86,21 @@ assert_verdict_prompt() {
 # Any first line other than the exact "VERDICT: PASS" / "VERDICT: FAIL" text
 # must block with the verdict prompt and keep the loop state.
 write_state addressing
+
+# The hook checks the correction summary before the verdict: without a usable
+# summary, a malformed review must hit the summary gate, not the verdict one.
+printf 'VERDICT: MAYBE\n' > "$REVIEW_FILE"
+output=$(run_hook)
+jq -e '.decision == "block"' <<< "$output" >/dev/null
+case "$(jq -r '.reason' <<< "$output")" in
+  *"missing or incomplete"*)
+    ;;
+  *)
+    printf 'FAIL: missing summary did not gate before the verdict\n' >&2
+    exit 1
+    ;;
+esac
+
 write_summary
 
 for verdict in 'VERDICT: MAYBE' 'verdict: pass' 'PASS' 'VERDICT: PASS '; do
