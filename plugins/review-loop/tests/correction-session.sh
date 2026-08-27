@@ -189,6 +189,27 @@ case "$claude_prompt" in
     exit 1
     ;;
 esac
+case "$claude_prompt" in
+  *"Verify each finding against the codebase"*"before changing anything"*) ;;
+  *)
+    printf 'FAIL: correction prompt did not require verification before fixes\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"do not reproduce, are already fixed"*"Skipped findings with the reason"*) ;;
+  *)
+    printf 'FAIL: correction prompt did not route unverified findings to skipped findings\n' >&2
+    exit 1
+    ;;
+esac
+case "$claude_prompt" in
+  *"performed for each fix in the Fixes section"*) ;;
+  *)
+    printf 'FAIL: correction prompt did not require recording fix verification\n' >&2
+    exit 1
+    ;;
+esac
 
 case "$(cat "$PROJECT_DIR/.claude/review-loop.log")" in
   *"Fresh interactive Claude correction session finished"*) ;;
@@ -270,6 +291,8 @@ jq -e '
   and (.reason | contains("full round history"))
   and (.reason | contains("review-*.md"))
   and (.reason | contains("summary-*.md"))
+  and (.reason | contains("Verify each finding against the codebase before applying"))
+  and (.reason | contains("reproduce the problem"))
 ' <<< "$fallback_output" >/dev/null
 
 printf 'correction session tests passed\n'

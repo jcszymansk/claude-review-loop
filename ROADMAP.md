@@ -124,7 +124,7 @@ Combine the useful prompt changes from the forks without forcing a pull-request 
 - [x] Keep diff, architecture, framework, and UX review sections where they apply.
 - [x] Tell reviewers not to modify source files.
 - [x] Require actionable findings with file, line, severity, explanation, and suggested fix.
-- [ ] Require Claude to verify findings before applying them.
+- [x] Require Claude to verify findings before applying them.
 
 The first portable implementation should use one reviewer invocation per round. Provider-native subagents can be used where available, but the loop must not depend on Codex-only multi-agent configuration.
 
