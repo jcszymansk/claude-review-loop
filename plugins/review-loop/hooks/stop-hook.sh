@@ -280,6 +280,7 @@ compute_branch_diff() {
       printf '# Branch diff\n\nRepository has no commits yet.\n\n'
       git diff --cached 2>/dev/null || true
       while IFS= read -r -d '' untracked_file; do
+        [ "$untracked_file" = "$output_file" ] && continue
         printf '\n--- Untracked file: %s ---\n\n' "$untracked_file"
         git diff --no-index -- /dev/null "$untracked_file" 2>/dev/null || true
       done < <(git ls-files --others --exclude-standard -z 2>/dev/null || true)

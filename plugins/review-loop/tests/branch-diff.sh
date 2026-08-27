@@ -145,4 +145,51 @@ case "$upstream_fallback_diff" in
 esac
 
 
+EMPTY_PROJECT_DIR="$TMP_DIR/empty-project"
+EMPTY_REVIEW_ID="20260827-070602-a1b2c3"
+mkdir -p "$EMPTY_PROJECT_DIR/.claude" "$EMPTY_PROJECT_DIR/reviews/$EMPTY_REVIEW_ID"
+git init "$EMPTY_PROJECT_DIR" >/dev/null
+printf 'staged-unborn-only\n' > "$EMPTY_PROJECT_DIR/staged.txt"
+git -C "$EMPTY_PROJECT_DIR" add staged.txt
+printf '# Review Loop Task Context\n\nunborn repository test\n' > \
+  "$EMPTY_PROJECT_DIR/reviews/$EMPTY_REVIEW_ID/summary-0.md"
+cat > "$EMPTY_PROJECT_DIR/.claude/review-loop.local.json" <<STATE_EOF
+{
+  "active": true,
+  "phase": "task",
+  "reviewer": "codex",
+  "task": "test unborn repository",
+  "round": 1,
+  "max_rounds": 3,
+  "review_id": "$EMPTY_REVIEW_ID",
+  "started_at": "2026-08-27T07:06:02Z"
+}
+STATE_EOF
+
+output=$(cd "$EMPTY_PROJECT_DIR" && \
+  env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_PROMPT_FILE="$PROMPT_CAPTURE" \
+  "$HOOK" <<< '{}')
+jq -e '.decision == "block"' <<< "$output" >/dev/null
+empty_diff=$(cat "$EMPTY_PROJECT_DIR/reviews/$EMPTY_REVIEW_ID/branch-diff.md")
+case "$empty_diff" in
+  *"Untracked file: reviews/$EMPTY_REVIEW_ID/branch-diff.md"*)
+    printf 'FAIL: unborn branch diff included itself\n' >&2
+    exit 1
+    ;;
+esac
+case "$empty_diff" in
+  *'Repository has no commits yet.'*) ;;
+  *)
+    printf 'FAIL: unborn branch diff omitted repository status\n' >&2
+    exit 1
+    ;;
+esac
+case "$empty_diff" in
+  *'staged-unborn-only'*) ;;
+  *)
+    printf 'FAIL: unborn branch diff omitted staged changes\n' >&2
+    exit 1
+    ;;
+esac
+
 printf 'branch diff tests passed\n'
