@@ -118,7 +118,7 @@ Combine the useful prompt changes from the forks without forcing a pull-request 
 - [x] Move prompt templates into separate Markdown files.
 - [x] Include the original task in every review.
 - [x] Include previous reviews and correction summaries in later rounds.
-- [ ] Review the current branch diff by default.
+- [x] Review the current branch diff by default.
 - [ ] Add optional GitHub and Gitea PR scoping.
 - [ ] Add spec-compliance review when a specification or plan exists.
 - [ ] Keep diff, architecture, framework, and UX review sections where they apply.

@@ -20,9 +20,9 @@ VERDICT: FAIL
 
 
 ---
-AGENT 1: Diff Review (focus on uncommitted and recently committed changes ONLY)
+AGENT 1: Branch Diff Review (focus on current branch changes ONLY)
 
-Run `git diff` and `git diff --cached` to see all uncommitted changes. Also run `git log --oneline -5` and `git diff HEAD~5` for recently committed work. Focus your review EXCLUSIVELY on this changed code.
+Read `__REVIEW_DIR__/branch-diff.md`. It contains the current branch changes relative to the detected base branch, plus staged, unstaged, and untracked worktree changes. Focus your review EXCLUSIVELY on this changed code. If the artifact says the base branch is unavailable, inspect the current worktree and branch history without assuming a fixed commit window.
 
 Review criteria for changed code:
 

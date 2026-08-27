@@ -260,6 +260,76 @@ detect_browser_ui() {
   [ -d "app" ] || [ -d "pages" ] || [ -d "src/app" ] || [ -d "src/pages" ] || \
     [ -d "public" ] || [ -f "index.html" ]
 }
+# ── Branch diff ─────────────────────────────────────────────────────────────
+compute_branch_diff() {
+  local output_file="$1"
+  local current_branch
+  local base_ref
+  local merge_base
+  local candidate
+  local untracked_file
+
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    printf '# Branch diff\n\nNot a Git repository.\n' > "$output_file"
+    return $?
+  fi
+  if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+    {
+      printf '# Branch diff\n\nRepository has no commits yet.\n\n'
+      git diff --cached 2>/dev/null || true
+      while IFS= read -r -d '' untracked_file; do
+        printf '\n--- Untracked file: %s ---\n\n' "$untracked_file"
+        git diff --no-index -- /dev/null "$untracked_file" 2>/dev/null || true
+      done < <(git ls-files --others --exclude-standard -z 2>/dev/null || true)
+    } > "$output_file"
+    return $?
+  fi
+
+  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached HEAD')
+  base_ref=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  if [ -n "$base_ref" ] && ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
+    base_ref=""
+  fi
+
+  if [ -z "$base_ref" ]; then
+    for candidate in main master develop; do
+      if [ "$candidate" != "$current_branch" ] &&
+        git rev-parse --verify "$candidate^{commit}" >/dev/null 2>&1; then
+        base_ref="$candidate"
+        break
+      fi
+      if git rev-parse --verify "origin/$candidate^{commit}" >/dev/null 2>&1; then
+        base_ref="origin/$candidate"
+        break
+      fi
+    done
+  fi
+
+  {
+    printf '# Branch diff\n\n'
+    printf 'Branch: %s\n' "$current_branch"
+    if [ -n "$base_ref" ] &&
+      merge_base=$(git merge-base HEAD "$base_ref" 2>/dev/null); then
+      printf 'Base: %s (merge-base with %s)\n\n' "$merge_base" "$base_ref"
+      git diff "$merge_base" 2>/dev/null || true
+    elif [ -n "$base_ref" ]; then
+      printf 'Base: %s (merge-base unavailable)\n\n' "$base_ref"
+      git diff "$base_ref" 2>/dev/null || true
+    else
+      printf 'Base: unavailable; showing worktree changes and recent commits.\n\n'
+      git diff HEAD 2>/dev/null || true
+      printf '\n--- Recent commits ---\n\n'
+      git log --oneline -10 2>/dev/null || true
+    fi
+
+    while IFS= read -r -d '' untracked_file; do
+      [ "$untracked_file" = "$output_file" ] && continue
+      printf '\n--- Untracked file: %s ---\n\n' "$untracked_file"
+      git diff --no-index -- /dev/null "$untracked_file" 2>/dev/null || true
+    done < <(git ls-files --others --exclude-standard -z 2>/dev/null || true)
+  } > "$output_file"
+}
+
 
 # ── Prompt templates ───────────────────────────────────────────────────────
 replace_prompt_placeholder() {
@@ -447,6 +517,8 @@ start_correction_session() {
     fi
     clear_child_pid "$correction_pid"
   else
+
+
     log "ERROR: fresh interactive Claude correction session unavailable: Stop hook has no terminal"
     correction_status=1
   fi
@@ -469,6 +541,14 @@ case "$PHASE" in
       printf '{"decision":"approve"}\n'
       exit 0
     fi
+    BRANCH_DIFF_FILE="${REVIEW_DIR}/branch-diff.md"
+    if ! compute_branch_diff "$BRANCH_DIFF_FILE"; then
+      log "ERROR: failed to write branch diff: $BRANCH_DIFF_FILE"
+      cleanup_runtime_files
+      printf '{"decision":"approve"}\n'
+      exit 0
+    fi
+
 
 
     if ! command -v "$REVIEWER_CLI" &> /dev/null; then

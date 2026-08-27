@@ -14,8 +14,8 @@ A Claude Code plugin that creates a bounded review loop:
 - The stop hook MUST always produce valid JSON to stdout — never let non-JSON text leak
 - Fail-open: on any error, approve exit rather than trapping the user
 - State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at` — clean up runtime state on exit, but never remove `reviews/<review_id>/` history
-- Each loop gets a validated `reviews/<review_id>/` directory containing `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome
-- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; the active child PID is tracked in `.claude/review-loop-child.pid`
+- Each loop gets a validated `reviews/<review_id>/` directory containing `branch-diff.md`, `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome.
+- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; the active child PID is tracked in `.claude/review-loop-child.pid`.
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing

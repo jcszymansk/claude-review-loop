@@ -23,12 +23,12 @@ The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Code
 
 | Agent | Always runs? | Focus |
 |-------|-------------|-------|
-| **Diff Review** | Yes | `git diff` — code quality, test coverage, security (OWASP top 10) |
+| **Diff Review** | Yes | Current branch diff, including staged, unstaged, and untracked changes, plus code quality, test coverage, and security (OWASP top 10) |
 | **Holistic Review** | Yes | Project structure, documentation, AGENTS.md, agent harness, architecture |
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
-Each loop stores its conversation artifacts together under `reviews/<id>/`: `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
+Each loop stores its branch diff and conversation artifacts together under `reviews/<id>/`: `branch-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
 
 
 ## Requirements
