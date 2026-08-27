@@ -10,6 +10,7 @@ if [ ! -f "$CODEX_CONFIG" ]; then
 elif ! grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
   if grep -qE '^\[features\]' "$CODEX_CONFIG"; then
     if [ "$(uname)" = "Darwin" ]; then
+      # shellcheck disable=SC1003 # BSD sed append needs backslash-newline
       sed -i '' '/^\[features\]/a\'$'\n''multi_agent = true' "$CODEX_CONFIG"
     else
       sed -i '/^\[features\]/a multi_agent = true' "$CODEX_CONFIG"

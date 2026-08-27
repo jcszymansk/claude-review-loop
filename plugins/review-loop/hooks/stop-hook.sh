@@ -67,7 +67,6 @@ clear_child_pid() {
   fi
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
-REVIEWER_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-reviewer.sh"
 PR_URL_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-pr-url.sh"
 PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
 STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
@@ -304,6 +303,7 @@ compute_branch_diff() {
     return $?
   fi
   if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+    # shellcheck disable=SC2094 # output_file is written by this block, never read
     {
       printf '# Branch diff\n\nRepository has no commits yet.\n\n'
       git diff --cached 2>/dev/null || true
@@ -353,6 +353,7 @@ compute_branch_diff() {
     done
   fi
 
+  # shellcheck disable=SC2094 # output_file is written by this block, never read
   {
     printf '# Branch diff\n\n'
     printf 'Branch: %s\n' "$current_branch"
@@ -659,6 +660,7 @@ start_correction_session() {
 
   log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
   if [ -n "$tty_device" ] && [ -r "$tty_device" ] && [ -w "$tty_device" ]; then
+    # shellcheck disable=SC2094 # same tty intentionally provides stdin and stdout
     env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1 &
     correction_pid=$!
     write_child_pid "$correction_pid"

@@ -107,8 +107,8 @@ grep -Fq 'needs correction' \
   "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
 grep -Fq 'addressed findings for round 1' \
   "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
-! grep -Fq 'current round review' \
-  "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt"
+grep -Fq 'current round review' \
+  "$PASS_PROJECT/.claude/review-loop-codex-prompt.txt" && exit 1
 
 output=$(run_hook "$PASS_PROJECT" "$PASS_HOME" "$PASS_COUNT")
 jq -e '.decision == "approve"' <<< "$output" >/dev/null

@@ -124,7 +124,7 @@ grep -q '^# Branch diff' "$nested_diff"
 grep -q '^Branch: feature$' "$nested_diff"
 grep -q '+feature work' "$nested_diff"
 grep -q '^--- Untracked file: untracked.txt ---$' "$nested_diff"
-! grep -q 'Untracked file: reviews/' "$nested_diff"
+grep -q 'Untracked file: reviews/' "$nested_diff" && exit 1
 
 write_summary "$NESTED_DIR" "$REVIEW_ID" 1
 

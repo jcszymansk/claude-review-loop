@@ -56,6 +56,7 @@ STATE_EOF
 
 run_hook() {
   local project_dir="$1"
+  # shellcheck disable=SC2016 # $1/$2 are positional args of the inner bash
   env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_PROMPT_FILE="$PROMPT_CAPTURE" \
     bash -c 'cd "$1" && "$2" <<< "{}"' _ "$project_dir" "$HOOK"
 }

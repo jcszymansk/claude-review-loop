@@ -141,7 +141,7 @@ Add deterministic tests around the shell lifecycle before changing the default b
 - [x] Test nested working directories and worktrees.
 - [x] Test concurrent loop isolation.
 - [x] Test provider selection and command construction with fake CLIs.
-- [ ] Run shellcheck and the full plugin test suite in CI.
+- [x] Run shellcheck and the full plugin test suite in CI.
 - [ ] Update README, `AGENTS.md`, configuration examples, and generated-file documentation.
 - [ ] Bump the plugin version for the first released implementation.
 

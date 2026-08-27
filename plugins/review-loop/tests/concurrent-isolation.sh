@@ -163,15 +163,15 @@ jq -e '.review_id == "'"$NESTED_REVIEW_ID"'" and .review_id != "'"$ROOT_REVIEW_I
 [ -f "$PROJECT/.claude/review-loop-codex-prompt.txt" ]
 [ -f "$NESTED_DIR/.claude/review-loop-codex-prompt.txt" ]
 grep -q "$ROOT_REVIEW_ID" "$PROJECT/.claude/review-loop-codex-prompt.txt"
-! grep -q "$NESTED_REVIEW_ID" "$PROJECT/.claude/review-loop-codex-prompt.txt"
+grep -q "$NESTED_REVIEW_ID" "$PROJECT/.claude/review-loop-codex-prompt.txt" && exit 1
 grep -q "$NESTED_REVIEW_ID" "$NESTED_DIR/.claude/review-loop-codex-prompt.txt"
-! grep -q "$ROOT_REVIEW_ID" "$NESTED_DIR/.claude/review-loop-codex-prompt.txt"
+grep -q "$ROOT_REVIEW_ID" "$NESTED_DIR/.claude/review-loop-codex-prompt.txt" && exit 1
 grep -q "reviews/$ROOT_REVIEW_ID/review-1.md" "$PROJECT/.claude/review-loop-run-codex.sh"
 grep -q "reviews/$NESTED_REVIEW_ID/review-1.md" "$NESTED_DIR/.claude/review-loop-run-codex.sh"
 grep -q "$ROOT_REVIEW_ID" "$PROJECT/.claude/review-loop.log"
-! grep -q "$NESTED_REVIEW_ID" "$PROJECT/.claude/review-loop.log"
+grep -q "$NESTED_REVIEW_ID" "$PROJECT/.claude/review-loop.log" && exit 1
 grep -q "$NESTED_REVIEW_ID" "$NESTED_DIR/.claude/review-loop.log"
-! grep -q "$ROOT_REVIEW_ID" "$NESTED_DIR/.claude/review-loop.log"
+grep -q "$ROOT_REVIEW_ID" "$NESTED_DIR/.claude/review-loop.log" && exit 1
 [ ! -f "$PROJECT/.claude/review-loop-child.pid" ]
 [ ! -f "$NESTED_DIR/.claude/review-loop-child.pid" ]
 
@@ -229,6 +229,7 @@ jq -e '.decision == "approve"' "$TMP_DIR/nested-r3.out" >/dev/null
 for pair in \
   "$PROJECT $ROOT_REVIEW_ID" \
   "$NESTED_DIR $NESTED_REVIEW_ID"; do
+  # shellcheck disable=SC2086 # deliberate split of "$project $review_id"
   set -- $pair
   for artifact in review-1.md review-2.md summary-1.md summary-2.md branch-diff.md; do
     [ -f "$1/reviews/$2/$artifact" ]

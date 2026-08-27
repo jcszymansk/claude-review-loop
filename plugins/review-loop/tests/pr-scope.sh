@@ -123,10 +123,12 @@ case "$fallback_diff" in
   *) printf 'FAIL: PR fetch failure omitted branch diff\n' >&2; exit 1 ;;
 esac
 fallback_prompt=$(cat "$PROMPT_CAPTURE")
+# shellcheck disable=SC2016 # backticks are literal prompt text
 case "$fallback_prompt" in
   *'The active scope is `local branch diff (pull request fetch failed; see warning in artifact)`'*) ;;
   *) printf 'FAIL: fallback prompt retained strict PR scope\n' >&2; exit 1 ;;
 esac
+# shellcheck disable=SC2016 # backticks are literal prompt text
 case "$fallback_prompt" in
   *'When the active diff scope starts with `local branch diff`, read the full project directory structure'*) ;;
   *) printf 'FAIL: fallback prompt lost holistic review coverage\n' >&2; exit 1 ;;

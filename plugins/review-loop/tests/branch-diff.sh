@@ -110,6 +110,7 @@ case "$review_prompt" in
     exit 1
     ;;
 esac
+# shellcheck disable=SC2016 # backticks are literal prompt text
 case "$review_prompt" in
   *'When the active diff scope starts with `local branch diff`, read the full project directory structure'*) ;;
   *)
