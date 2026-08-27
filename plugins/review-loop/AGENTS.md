@@ -15,7 +15,7 @@ A Claude Code plugin that creates a bounded review loop:
 - Fail-open: on any error, approve exit rather than trapping the user
 - State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`; an optional validated `pr_url` keeps pull request scope stable across rounds. Clean up runtime state on exit, but never remove `reviews/<review_id>/` history
 - Each loop gets a validated `reviews/<review_id>/` directory containing `branch-diff.md`, `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome.
-- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; the active child PID is tracked in `.claude/review-loop-child.pid`.
+- Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; a non-zero reviewer exit preserves the artifact as a numbered `review-<round>.md.reviewer-error.<n>` file so a failed review can never be accepted as PASS; the active child PID is tracked in `.claude/review-loop-child.pid`.
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - `REVIEW_LOOP_PR` or `--pr <url>` selects a GitHub or Gitea pull request; the hook fetches its diff with `curl` and falls back to the local branch diff with a warning when the fetch fails
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
@@ -43,4 +43,4 @@ A Claude Code plugin that creates a bounded review loop:
 - Test phase transition: verify `transition_phase` updates state file and `parse_field` reads the new value
 - Test addressing phase blocks when the review file or verdict is missing, malformed, or `FAIL`, and approves only when a valid `PASS` verdict exists.
 - Run `tests/cancellation.sh` to verify reviewer and correction-session processes stop while review history remains.
-- Run `tests/reviewer-errors.sh` to verify a reviewer that exits non-zero (crash, crash after writing a verdict, or killed by a timeout) never reports PASS: the artifact is preserved as `review-<round>.md.reviewer-error`, the retry gate prompts a rerun, and the loop fails open while keeping history.
+- Run `tests/reviewer-errors.sh` to verify a reviewer that exits non-zero (crash, crash after writing a verdict, or killed by a timeout) never reports PASS: each failed attempt is preserved as a numbered `review-<round>.md.reviewer-error.<n>` artifact, the canonical review path stays vacant so the retry gate takes over, and the loop fails open while keeping history.

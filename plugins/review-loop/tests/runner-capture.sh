@@ -145,7 +145,7 @@ if [ -f "$REVIEW_FILE" ]; then
   printf 'FAIL: failed reviewer artifact remained in the canonical review path\n' >&2
   exit 1
 fi
-if [ "$(cat "$REVIEW_FILE.reviewer-error")" != "$expected_output" ]; then
+if [ "$(cat "$REVIEW_FILE.reviewer-error.1")" != "$expected_output" ]; then
   printf 'FAIL: runner did not preserve output from a failed reviewer\n' >&2
   exit 1
 fi

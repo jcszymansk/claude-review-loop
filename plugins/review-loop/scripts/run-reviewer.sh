@@ -66,11 +66,18 @@ fi
 
 if [ "$REVIEWER_EXIT" -ne 0 ] && [ -f "$REVIEW_FILE" ]; then
   # A non-zero reviewer exit is an error: the loop must never accept this
-  # artifact as a PASS verdict. Keep it for inspection, but move it out of
-  # the canonical review path so the addressing phase treats the round as
-  # incomplete and the retry gate takes over. Vacating the path also lets a
-  # later rerun capture a fresh artifact.
-  mv "$REVIEW_FILE" "${REVIEW_FILE}.reviewer-error"
+  # artifact as a PASS verdict. Keep every failed attempt for inspection,
+  # numbered to avoid collisions, and vacate the canonical review path so
+  # the addressing phase treats the round as incomplete and the retry gate
+  # takes over. Vacating the path also lets a later rerun capture a fresh
+  # artifact.
+  quarantine_index=1
+  quarantine_file="${REVIEW_FILE}.reviewer-error.${quarantine_index}"
+  while [ -e "$quarantine_file" ]; do
+    quarantine_index=$((quarantine_index + 1))
+    quarantine_file="${REVIEW_FILE}.reviewer-error.${quarantine_index}"
+  done
+  mv "$REVIEW_FILE" "$quarantine_file"
 fi
 
 exit "$REVIEWER_EXIT"

@@ -12,6 +12,7 @@ STATE_FILE="$PROJECT_DIR/.claude/review-loop.local.json"
 REVIEW_DIR="$PROJECT_DIR/reviews/$REVIEW_ID"
 REVIEW_FILE="$REVIEW_DIR/review-1.md"
 REVIEWER_PID_FILE="$TMP_DIR/reviewer.pid"
+RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 HOOK_PID=""
 
 cleanup() {
@@ -38,7 +39,15 @@ case "${FAKE_REVIEW_MODE:-clean}" in
     exit 5
     ;;
   pass-then-crash)
-    printf 'VERDICT: PASS\nreview from a crashed reviewer\n'
+    count=0
+    if [ -f "${FAKE_COUNT_FILE:-}" ]; then
+      count=$(cat "$FAKE_COUNT_FILE")
+    fi
+    count=$((count + 1))
+    if [ -n "${FAKE_COUNT_FILE:-}" ]; then
+      printf '%s\n' "$count" > "$FAKE_COUNT_FILE"
+    fi
+    printf 'VERDICT: PASS\nreview from a crashed reviewer (attempt %s)\n' "$count"
     exit 7
     ;;
   hang)
@@ -106,6 +115,19 @@ wait_for_file() {
   exit 1
 }
 
+assert_stopped() {
+  local pid="$1"
+  local attempts=0
+  while [ "$attempts" -lt 30 ] && kill -0 "$pid" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    printf 'FAIL: process %s was not stopped\n' "$pid" >&2
+    exit 1
+  fi
+}
+
 assert_reviewer_failed() {
   local output="$1"
   jq -e '.decision == "block"' <<< "$output" >/dev/null
@@ -124,6 +146,9 @@ assert_reviewer_failed() {
 }
 
 assert_fails_open() {
+  # First stop after the failure prompts a rerun; the second fails open.
+  # This final approve is the error fail-open (state cleaned, history kept),
+  # never a PASS verdict approval.
   local output
   output=$(run_hook)
   jq -e '.decision == "block"' <<< "$output" >/dev/null
@@ -149,6 +174,8 @@ export FAKE_REVIEW_MODE=crash
 write_state
 output=$(run_hook)
 assert_reviewer_failed "$output"
+[ ! -e "$REVIEW_FILE.reviewer-error.1" ]
+grep -q 'exit=3' "$PROJECT_DIR/.claude/review-loop.log"
 assert_fails_open
 [ -f "$REVIEW_DIR/summary-0.md" ]
 
@@ -159,10 +186,11 @@ export FAKE_REVIEW_MODE=pass-then-crash
 write_state
 output=$(run_hook)
 assert_reviewer_failed "$output"
-[ -f "$REVIEW_FILE.reviewer-error" ]
-[ "$(head -n 1 "$REVIEW_FILE.reviewer-error")" = "VERDICT: PASS" ]
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
+[ "$(head -n 1 "$REVIEW_FILE.reviewer-error.1")" = "VERDICT: PASS" ]
+grep -q 'exit=7' "$PROJECT_DIR/.claude/review-loop.log"
 assert_fails_open
-[ -f "$REVIEW_FILE.reviewer-error" ]
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
 [ -f "$REVIEW_DIR/summary-0.md" ]
 
 # ── Reviewer crashes after writing a FAIL verdict ──────────────────────────
@@ -172,15 +200,45 @@ export FAKE_REVIEW_MODE=fail-then-crash
 write_state
 output=$(run_hook)
 assert_reviewer_failed "$output"
-[ -f "$REVIEW_FILE.reviewer-error" ]
-[ "$(head -n 1 "$REVIEW_FILE.reviewer-error")" = "VERDICT: FAIL" ]
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
+[ "$(head -n 1 "$REVIEW_FILE.reviewer-error.1")" = "VERDICT: FAIL" ]
+grep -q 'exit=5' "$PROJECT_DIR/.claude/review-loop.log"
 assert_fails_open
-[ -f "$REVIEW_FILE.reviewer-error" ]
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
+
+# ── Two failed invocations in one round keep every artifact ────────────────
+# A rerun that also crashes must not overwrite the first quarantined
+# artifact: each failed attempt gets its own numbered file.
+export FAKE_REVIEW_MODE=pass-then-crash FAKE_COUNT_FILE="$TMP_DIR/attempt-count"
+write_state
+output=$(run_hook)
+assert_reviewer_failed "$output"
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
+grep -q 'attempt 1' "$REVIEW_FILE.reviewer-error.1"
+
+output=$(run_hook)
+jq -e '.decision == "block"' <<< "$output" >/dev/null
+[ "$(cat "$PROJECT_DIR/.claude/review-loop-retries")" = "1" ]
+
+(
+  cd "$PROJECT_DIR"
+  env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$RUNNER"
+) >/dev/null || true
+[ ! -e "$REVIEW_FILE" ]
+[ -f "$REVIEW_FILE.reviewer-error.2" ]
+grep -q 'attempt 2' "$REVIEW_FILE.reviewer-error.2"
+
+output=$(run_hook)
+jq -e '.decision == "approve"' <<< "$output" >/dev/null
+[ ! -f "$STATE_FILE" ]
+[ -f "$REVIEW_FILE.reviewer-error.1" ]
+[ -f "$REVIEW_FILE.reviewer-error.2" ]
+[ -f "$REVIEW_DIR/summary-0.md" ]
 
 # ── Reviewer times out (hangs, then is killed) ─────────────────────────────
 # Simulates the harness timeout killing a hung reviewer. The loop must not
-# report PASS, must keep state for the retry gate, and must recover when the
-# rerun succeeds.
+# report PASS, must keep state for the retry gate, must leave no tracked
+# child behind, and must recover when the rerun succeeds.
 export FAKE_REVIEW_MODE=hang FAKE_REVIEWER_PID_FILE="$REVIEWER_PID_FILE"
 write_state
 (
@@ -194,8 +252,10 @@ kill -TERM "$(cat "$REVIEWER_PID_FILE")"
 wait "$HOOK_PID" || true
 HOOK_PID=""
 assert_reviewer_failed "$(cat "$TMP_DIR/hang-hook-output")"
-[ ! -e "$REVIEW_FILE.reviewer-error" ]
+assert_stopped "$(cat "$REVIEWER_PID_FILE")"
+[ ! -e "$REVIEW_FILE.reviewer-error.1" ]
 [ ! -e "$PROJECT_DIR/.claude/review-loop-child.pid" ]
+grep -q 'exit=143' "$PROJECT_DIR/.claude/review-loop.log"
 
 # Retry gate prompts a rerun, then a successful rerun recovers the loop.
 export FAKE_REVIEW_MODE=clean
@@ -203,7 +263,6 @@ output=$(run_hook)
 jq -e '.decision == "block"' <<< "$output" >/dev/null
 [ "$(cat "$PROJECT_DIR/.claude/review-loop-retries")" = "1" ]
 
-RUNNER="$PROJECT_DIR/.claude/review-loop-run-codex.sh"
 (
   cd "$PROJECT_DIR"
   env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" "$RUNNER"
