@@ -25,6 +25,7 @@ The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Code
 |-------|-------------|-------|
 | **Diff Review** | Yes | Current branch diff, or the selected GitHub/Gitea pull request diff, plus code quality, test coverage, and security (OWASP top 10) |
 | **Holistic Review** | Yes | Project structure, documentation, AGENTS.md, agent harness, architecture |
+| **Spec Compliance Review** | If `SPEC.md`, `spec.md`, `SPECIFICATION.md`, `specification.md`, `PLAN.md`, `plan.md`, or matching files under `docs/` exists | Documented requirements, acceptance criteria, plan completion, and requirement-specific test coverage |
 | **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
 | **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
 
@@ -140,6 +141,7 @@ claude-review-loop/
 │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
 ├── prompts/
 │   ├── review-base.md              # Shared reviewer instructions
+│   ├── review-spec.md              # Conditional specification and plan review
 │   ├── review-nextjs.md            # Conditional Next.js review instructions
 │   ├── review-ux.md                # Conditional browser UX review instructions
 │   ├── review-consolidation.md     # Finding consolidation instructions

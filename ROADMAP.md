@@ -120,7 +120,7 @@ Combine the useful prompt changes from the forks without forcing a pull-request 
 - [x] Include previous reviews and correction summaries in later rounds.
 - [x] Review the current branch diff by default.
 - [x] Add optional GitHub and Gitea PR scoping.
-- [ ] Add spec-compliance review when a specification or plan exists.
+- [x] Add spec-compliance review when a specification or plan exists.
 - [ ] Keep diff, architecture, framework, and UX review sections where they apply.
 - [ ] Tell reviewers not to modify source files.
 - [ ] Require actionable findings with file, line, severity, explanation, and suggested fix.

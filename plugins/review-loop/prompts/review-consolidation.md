@@ -8,7 +8,7 @@ CONSOLIDATION INSTRUCTIONS (after all agents complete):
 5. For each finding, include:
    - File path and line number (or directory for structural issues)
    - Severity: critical / high / medium / low
-   - Category: which review path found it (Diff, Holistic, Next.js, UX)
+   - Category: which review path found it (Diff, Holistic, Spec Compliance, Next.js, UX)
    - Description: clear explanation
    - Suggested fix: concrete, actionable recommendation
 6. End with a summary: total issues, breakdown by severity, agents that ran, overall assessment

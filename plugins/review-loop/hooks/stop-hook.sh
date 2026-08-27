@@ -267,6 +267,27 @@ detect_browser_ui() {
   [ -d "app" ] || [ -d "pages" ] || [ -d "src/app" ] || [ -d "src/pages" ] || \
     [ -d "public" ] || [ -f "index.html" ]
 }
+SPEC_FILES=""
+detect_spec_or_plan() {
+  local candidate
+
+  for candidate in \
+    SPEC.md spec.md SPECIFICATION.md specification.md \
+    PLAN.md plan.md \
+    docs/SPEC.md docs/spec.md docs/SPECIFICATION.md docs/specification.md \
+    docs/PLAN.md docs/plan.md; do
+    if [ -f "$candidate" ] && [ -r "$candidate" ]; then
+      if [ -n "$SPEC_FILES" ]; then
+        SPEC_FILES="${SPEC_FILES}"$'\n'
+      fi
+      SPEC_FILES="${SPEC_FILES}${candidate}"
+    fi
+  done
+
+  [ -n "$SPEC_FILES" ]
+}
+
+
 # ── Branch diff ─────────────────────────────────────────────────────────────
 compute_branch_diff() {
   local output_file="$1"
@@ -533,21 +554,27 @@ render_prompt_template() {
   replace_prompt_placeholder "__PR_URL__" "$PR_URL"
   replace_prompt_placeholder "__REVIEW_SCOPE__" "$REVIEW_SCOPE"
   replace_prompt_placeholder "__PRIOR_ROUND_HISTORY__" "$PRIOR_ROUND_HISTORY"
+  replace_prompt_placeholder "__SPEC_FILES__" "$SPEC_FILES"
   printf '%s\n' "$template"
 }
 
 build_review_prompt() {
   local IS_NEXTJS=false
   local HAS_UI=false
+  local HAS_SPEC=false
   detect_nextjs && IS_NEXTJS=true
   detect_browser_ui && HAS_UI=true
+  detect_spec_or_plan && HAS_SPEC=true
 
-  log "Project detection: nextjs=$IS_NEXTJS, browser_ui=$HAS_UI"
+  log "Project detection: nextjs=$IS_NEXTJS, browser_ui=$HAS_UI, spec_or_plan=$HAS_SPEC"
 
   if ! PRIOR_ROUND_HISTORY=$(build_prior_round_history); then
     return 1
   fi
   render_prompt_template "$PROMPTS_DIR/review-base.md" || return 1
+  if [ "$HAS_SPEC" = "true" ]; then
+    render_prompt_template "$PROMPTS_DIR/review-spec.md" || return 1
+  fi
   if [ "$IS_NEXTJS" = "true" ]; then
     render_prompt_template "$PROMPTS_DIR/review-nextjs.md" || return 1
   fi
