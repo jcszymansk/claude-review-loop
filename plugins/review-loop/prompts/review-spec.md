@@ -11,4 +11,4 @@ If the active scope is the pull request diff, limit findings to behavior changed
 
 Check whether tests cover the documented acceptance criteria and important edge cases. Report missing coverage only when it protects a specific requirement.
 
-For each issue, return the file path and line number when available, severity (critical/high/medium/low), category (Spec Compliance), the unmet requirement, a clear explanation, and a concrete suggested fix.
+For each issue, return the file path and line number (the closest line for plan-level issues), severity (critical/high/medium/low), category (Spec Compliance), the unmet requirement, a clear explanation, and a concrete suggested fix.

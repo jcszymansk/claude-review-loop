@@ -40,4 +40,4 @@ React Performance:
 - Is content-visibility: auto used for long lists?
 - Are inline scripts used to set client data before hydration (prevent FOUC)?
 
-For each issue: return file path, line number, severity (critical/high/medium/low), category, description, and suggested fix.
+For each issue: return file path, line number, severity (critical/high/medium/low), category, explanation, and suggested fix.

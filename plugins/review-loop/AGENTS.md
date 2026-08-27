@@ -24,6 +24,7 @@ A Claude Code plugin that creates a bounded review loop:
 - Claude Code does NOT set `stop_hook_active` in hook input — do not rely on it for re-entrancy detection
 - The `addressing` phase verifies the current numbered review file and correction summary before allowing exit; a complete `FAIL` round advances automatically to the next review
 - Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit
+- Every review finding must be actionable: file path and line number (or directory for structural issues), severity (critical/high/medium/low), explanation, and suggested fix; incomplete findings are discarded at consolidation
 
 ## Security constraints
 

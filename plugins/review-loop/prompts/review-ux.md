@@ -16,4 +16,4 @@ Testing checklist:
 
 If the dev server is not running or you cannot access it, skip this agent and note that UX testing was not performed.
 
-For each issue: return screenshot description, severity, category, description, and suggested fix.
+For each issue: return the file path and line number of the component or page where the issue appears, severity (critical/high/medium/low), category, explanation, and a concrete suggested fix.

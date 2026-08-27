@@ -18,6 +18,14 @@ When the active diff scope is the pull request diff, every review agent MUST lim
 
 Review the changes against the original task and flag missing or incorrect requested behavior.
 
+ACTIONABLE FINDINGS REQUIREMENT: every finding MUST include all of these fields:
+
+- File path and line number (for structural or project-wide issues: the closest affected file and line, or the directory)
+- Severity: critical / high / medium / low
+- Explanation of the problem
+- Suggested fix
+
+A finding missing any required field is not actionable and MUST NOT be reported by any agent, and MUST NOT appear in the consolidated review.
 
 Use multi-agent to run the following review agents IN PARALLEL. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
 
@@ -56,7 +64,7 @@ Security:
 - OWASP Top 10: check for broken access control, cryptographic failures, insecure design, security misconfiguration, vulnerable dependencies, SSRF
 - Are error messages safe (no stack traces or internal details leaked to users)?
 
-For each issue: return file path, line number, severity (critical/high/medium/low), category, description, and suggested fix.
+For each issue: return file path, line number, severity (critical/high/medium/low), category, explanation, and suggested fix.
 
 ---
 AGENT 2: Holistic Review (evaluate overall project structure and agent readiness)
@@ -88,4 +96,4 @@ Architecture:
 - Is configuration centralized rather than scattered?
 - Is error handling consistent across the codebase?
 
-For each issue: return file path (or directory), severity (critical/high/medium/low), category, description, and suggested fix.
+For each issue: return file path and line number (or directory for structural issues), severity (critical/high/medium/low), category, explanation, and suggested fix.
