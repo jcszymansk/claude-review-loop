@@ -133,7 +133,7 @@ The first portable implementation should use one reviewer invocation per round. 
 Add deterministic tests around the shell lifecycle before changing the default behavior.
 
 - [x] Test `PASS` on the first round.
-- [ ] Test `FAIL → PASS` across two rounds.
+- [x] Test `FAIL → PASS` across two rounds.
 - [ ] Test repeated `FAIL` until the round limit.
 - [ ] Test malformed verdicts and missing artifacts.
 - [ ] Test reviewer non-zero exit and timeout behavior.
