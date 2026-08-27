@@ -146,5 +146,7 @@ esac
 [ ! -f "$MAX_PROJECT/.claude/review-loop.local.json" ]
 [ -f "$MAX_PROJECT/reviews/$MAX_REVIEW_ID/review-1.md" ]
 [ -f "$MAX_PROJECT/reviews/$MAX_REVIEW_ID/review-2.md" ]
+[ "$(cat "$MAX_COUNT")" = "2" ]
+[ ! -f "$MAX_PROJECT/reviews/$MAX_REVIEW_ID/review-3.md" ]
 
 printf 'iterative round tests passed\n'
