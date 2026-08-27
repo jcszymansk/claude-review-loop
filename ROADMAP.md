@@ -138,7 +138,7 @@ Add deterministic tests around the shell lifecycle before changing the default b
 - [x] Test malformed verdicts and missing artifacts.
 - [x] Test reviewer non-zero exit and timeout behavior.
 - [x] Test cancellation and child-process cleanup.
-- [ ] Test nested working directories and worktrees.
+- [x] Test nested working directories and worktrees.
 - [ ] Test concurrent loop isolation.
 - [ ] Test provider selection and command construction with fake CLIs.
 - [ ] Run shellcheck and the full plugin test suite in CI.
