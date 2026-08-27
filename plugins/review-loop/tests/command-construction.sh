@@ -3,23 +3,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-reviewer.sh"
+RESOLVER="$SCRIPT_DIR/../scripts/resolve-reviewer.sh"
 TMP_DIR="$(mktemp -d)"
 BIN_DIR="$TMP_DIR/bin"
+PROJECT_DIR="$TMP_DIR/project"
+HOME_DIR="$TMP_DIR/home"
 PROMPT_FILE="$TMP_DIR/prompt.md"
 ARGS_FILE="$TMP_DIR/args"
 STDIN_FILE="$TMP_DIR/stdin"
 EXPECTED_ARGS="$TMP_DIR/expected-args"
 REVIEW_FILE="$TMP_DIR/review-1.md"
 ERROR_FILE="$TMP_DIR/error"
+RESOLVED_REVIEWER="$TMP_DIR/resolved-reviewer"
 
 cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
-mkdir -p "$BIN_DIR"
+mkdir -p "$BIN_DIR" "$PROJECT_DIR" "$HOME_DIR"
 export PATH="$BIN_DIR:$PATH"
 export FAKE_ARGS_FILE="$ARGS_FILE" FAKE_STDIN_FILE="$STDIN_FILE"
+
+# Never inherit reviewer or flag settings from the calling environment: the
+# default-argv assertions below must pass on any developer or CI machine.
+unset REVIEW_LOOP_REVIEWER REVIEW_LOOP_CODEX_FLAGS REVIEW_LOOP_GEMINI_FLAGS REVIEW_LOOP_CURSOR_FLAGS
 
 cat > "$BIN_DIR/fake-reviewer" <<'FAKE_EOF'
 #!/usr/bin/env bash
@@ -146,6 +154,65 @@ unset REVIEW_LOOP_CURSOR_FLAGS
   printf '<--print-timing>\n'
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
+
+unset FAKE_MODE
+
+# ── Reviewer selection flows into command construction ─────────────────────
+# Prove each selection source (environment, user config, project config)
+# resolves to a reviewer whose command shape the runner actually builds.
+# The resolver runs isolated so the caller's HOME, XDG_CONFIG_HOME, and
+# working directory cannot leak into the selection.
+
+export FAKE_MODE=pass
+
+# Environment variable wins with no configuration present.
+(
+  cd "$PROJECT_DIR"
+  env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=gemini "$RESOLVER"
+) > "$RESOLVED_REVIEWER"
+"$RUNNER" "$(cat "$RESOLVED_REVIEWER")" "$PROMPT_FILE"
+{
+  printf 'gemini\n'
+  printf '<-p>\n'
+  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
+  printf '<--output-format>\n'
+  printf '<text>\n'
+} > "$EXPECTED_ARGS"
+assert_args "$EXPECTED_ARGS"
+
+# User config selects codex when no project config exists.
+mkdir -p "$HOME_DIR/.config/review-loop"
+printf 'reviewer = "codex"\n' > "$HOME_DIR/.config/review-loop/config.toml"
+(
+  cd "$PROJECT_DIR"
+  env -i PATH="$PATH" HOME="$HOME_DIR" "$RESOLVER"
+) > "$RESOLVED_REVIEWER"
+"$RUNNER" "$(cat "$RESOLVED_REVIEWER")" "$PROMPT_FILE"
+{
+  printf 'codex\n'
+  printf '<--dangerously-bypass-approvals-and-sandbox>\n'
+  printf '<exec>\n'
+  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
+} > "$EXPECTED_ARGS"
+assert_args "$EXPECTED_ARGS"
+
+# Project config selects cursor and beats the user config.
+printf 'reviewer = "cursor"\n' > "$PROJECT_DIR/.review-loop.toml"
+(
+  cd "$PROJECT_DIR"
+  env -i PATH="$PATH" HOME="$HOME_DIR" "$RESOLVER"
+) > "$RESOLVED_REVIEWER"
+export FAKE_CAPTURE_STDIN=1
+"$RUNNER" "$(cat "$RESOLVED_REVIEWER")" "$PROMPT_FILE"
+unset FAKE_CAPTURE_STDIN
+{
+  printf 'cursor-agent\n'
+  printf '<-p>\n'
+  printf '<--output-format>\n'
+  printf '<text>\n'
+} > "$EXPECTED_ARGS"
+assert_args "$EXPECTED_ARGS"
+cmp "$PROMPT_FILE" "$STDIN_FILE"
 
 unset FAKE_MODE
 
