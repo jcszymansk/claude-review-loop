@@ -17,6 +17,19 @@ printf '[features]\nmulti_agent = true\n' > "$HOME_DIR/.codex/config.toml"
 
 cat > "$BIN_DIR/codex" <<'CODEX_EOF'
 #!/usr/bin/env bash
+# Barrier: block until both concurrent reviews have started, so the two hook
+# runs genuinely overlap regardless of scheduling. Bounded to avoid hangs.
+if [ -n "${FAKE_BARRIER_FILE:-}" ]; then
+  printf 'started\n' >> "$FAKE_BARRIER_FILE"
+  waited=0
+  while [ "$waited" -lt 200 ]; do
+    if [ "$(wc -l < "$FAKE_BARRIER_FILE" 2>/dev/null || echo 0)" -ge 2 ]; then
+      break
+    fi
+    sleep 0.05
+    waited=$((waited + 1))
+  done
+fi
 count=0
 if [ -f "$FAKE_COUNT_FILE" ]; then
   count=$(cat "$FAKE_COUNT_FILE")
@@ -80,9 +93,11 @@ run_hook_once() {
   local run_dir="$1"
   local count_file="$2"
   local output_file="$3"
+  local barrier_file="${4:-}"
   (
     cd "$run_dir"
     env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" FAKE_COUNT_FILE="$count_file" \
+      ${barrier_file:+FAKE_BARRIER_FILE="$barrier_file"} \
       "$HOOK" <<< '{}' > "$output_file" 2>&1
   )
 }
@@ -114,13 +129,19 @@ write_state "$PROJECT" "$ROOT_REVIEW_ID" "concurrent root loop"
 write_state "$NESTED_DIR" "$NESTED_REVIEW_ID" "concurrent nested loop"
 
 # Round 1 for both loops at the same time: each hook writes its own runner,
-# prompt, pid, review artifact, and log from its own working directory.
-run_hook_once "$PROJECT" "$ROOT_COUNT" "$TMP_DIR/root-r1.out" &
+# prompt, pid, review artifact, and log from its own working directory. The
+# shared barrier makes both reviewers block until both have started, so the
+# hook runs genuinely overlap.
+ROUND1_BARRIER="$TMP_DIR/round1-barrier"
+run_hook_once "$PROJECT" "$ROOT_COUNT" "$TMP_DIR/root-r1.out" "$ROUND1_BARRIER" &
 ROOT_PID=$!
-run_hook_once "$NESTED_DIR" "$NESTED_COUNT" "$TMP_DIR/nested-r1.out" &
+run_hook_once "$NESTED_DIR" "$NESTED_COUNT" "$TMP_DIR/nested-r1.out" "$ROUND1_BARRIER" &
 NESTED_PID=$!
 wait "$ROOT_PID"
 wait "$NESTED_PID"
+
+# Both fake reviewers reached the barrier: the loops were active concurrently.
+[ "$(wc -l < "$ROUND1_BARRIER")" = "2" ]
 
 jq -e '.decision == "block"' "$TMP_DIR/root-r1.out" >/dev/null
 jq -e '.decision == "block"' "$TMP_DIR/nested-r1.out" >/dev/null
@@ -161,13 +182,17 @@ grep -q "$NESTED_REVIEW_ID" "$NESTED_DIR/.claude/review-loop.log"
 write_summary "$PROJECT" "$ROOT_REVIEW_ID" 1
 write_summary "$NESTED_DIR" "$NESTED_REVIEW_ID" 1
 
-# Round 2 for both loops concurrently: each advances independently to PASS.
-run_hook_once "$PROJECT" "$ROOT_COUNT" "$TMP_DIR/root-r2.out" &
+# Round 2 for both loops concurrently: each advances independently to PASS,
+# again synchronized so both reviews overlap.
+ROUND2_BARRIER="$TMP_DIR/round2-barrier"
+run_hook_once "$PROJECT" "$ROOT_COUNT" "$TMP_DIR/root-r2.out" "$ROUND2_BARRIER" &
 ROOT_PID=$!
-run_hook_once "$NESTED_DIR" "$NESTED_COUNT" "$TMP_DIR/nested-r2.out" &
+run_hook_once "$NESTED_DIR" "$NESTED_COUNT" "$TMP_DIR/nested-r2.out" "$ROUND2_BARRIER" &
 NESTED_PID=$!
 wait "$ROOT_PID"
 wait "$NESTED_PID"
+
+[ "$(wc -l < "$ROUND2_BARRIER")" = "2" ]
 
 jq -e '.decision == "block"' "$TMP_DIR/root-r2.out" >/dev/null
 jq -e '.decision == "block"' "$TMP_DIR/nested-r2.out" >/dev/null
