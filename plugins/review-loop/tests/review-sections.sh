@@ -61,10 +61,17 @@ run_hook() {
     bash -c 'cd "$1" && "$2" <<< "{}"' _ "$project_dir" "$HOOK"
 }
 
-# Diff and architecture sections must survive in every rendered prompt.
+# Diff, architecture, and read-only sections must survive in every rendered prompt.
 assert_always_sections() {
   local prompt="$1"
   local label="$2"
+  case "$prompt" in
+    *'READ-ONLY RULE'*'must not create, edit, or delete any source'*) ;;
+    *)
+      printf 'FAIL: %s prompt dropped the read-only review rule\n' "$label" >&2
+      exit 1
+      ;;
+  esac
   case "$prompt" in
     *'AGENT 1: Branch Diff Review'*'OWASP Top 10'*) ;;
     *)

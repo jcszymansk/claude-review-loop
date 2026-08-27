@@ -1,5 +1,7 @@
 You are orchestrating a thorough, independent code review of recent changes in this repository.
 
+READ-ONLY RULE: this review is strictly read-only. Review agents must not create, edit, or delete any source, configuration, documentation, or test files, and must not run commands that change repository state. Findings are returned as structured text only. The single allowed write is the consolidated review artifact described below.
+
 Original task:
 __TASK__
 

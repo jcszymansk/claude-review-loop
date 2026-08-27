@@ -122,7 +122,7 @@ Combine the useful prompt changes from the forks without forcing a pull-request 
 - [x] Add optional GitHub and Gitea PR scoping.
 - [x] Add spec-compliance review when a specification or plan exists.
 - [x] Keep diff, architecture, framework, and UX review sections where they apply.
-- [ ] Tell reviewers not to modify source files.
+- [x] Tell reviewers not to modify source files.
 - [ ] Require actionable findings with file, line, severity, explanation, and suggested fix.
 - [ ] Require Claude to verify findings before applying them.
 
