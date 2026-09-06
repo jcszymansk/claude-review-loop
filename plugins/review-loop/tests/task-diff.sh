@@ -33,6 +33,34 @@ printf 'before\n' > "$PROJECT_DIR/existing.txt"
 git -C "$PROJECT_DIR" add .
 git -C "$PROJECT_DIR" commit -qm base
 
+printf '.claude/\n' > "$PROJECT_DIR/.git/info/exclude"
+mkdir -p "$PROJECT_DIR/.claude"
+mkdir -p "$PROJECT_DIR/reviews/pre-existing"
+printf 'pre-existing review artifact\n' > \
+  "$PROJECT_DIR/reviews/pre-existing/review.md"
+
+BASELINE_TREE=$(cd "$PROJECT_DIR" && "$SNAPSHOT")
+BASELINE_FILES=$(git -C "$PROJECT_DIR" ls-tree -r --name-only "$BASELINE_TREE")
+case "$BASELINE_FILES" in
+  *'reviews/pre-existing/review.md'*)
+    printf 'FAIL: baseline tree included a review artifact\n' >&2
+    exit 1
+    ;;
+esac
+
+printf 'reviews/\n' > "$PROJECT_DIR/.git/info/exclude"
+printf 'pre-existing loop state\n' > \
+  "$PROJECT_DIR/.claude/review-loop.local.json"
+REVERSE_TREE=$(cd "$PROJECT_DIR" && "$SNAPSHOT")
+REVERSE_FILES=$(git -C "$PROJECT_DIR" ls-tree -r --name-only "$REVERSE_TREE")
+case "$REVERSE_FILES" in
+  *'.claude/review-loop.local.json'*)
+    printf 'FAIL: snapshot tree included loop state\n' >&2
+    exit 1
+    ;;
+esac
+printf '.claude/\n' > "$PROJECT_DIR/.git/info/exclude"
+
 printf 'pre-existing unstaged\n' > "$PROJECT_DIR/existing.txt"
 printf 'pre-existing staged\n' > "$PROJECT_DIR/staged.txt"
 git -C "$PROJECT_DIR" add staged.txt
