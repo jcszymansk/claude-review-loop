@@ -60,6 +60,7 @@ if [ -f "$STATE_FILE" ]; then
   echo "Error: A review loop is already active. Use /cancel-review first."
   exit 1
 fi
+BASELINE_TREE="$("${CLAUDE_PLUGIN_ROOT}/scripts/capture-worktree-tree.sh")"
 
 if ! command -v "$REVIEWER_CLI" >/dev/null 2>&1; then
   echo "Error: ${REVIEWER_NAME} CLI (${REVIEWER_CLI}) is not installed."
@@ -90,11 +91,12 @@ jq -n \
   --arg reviewer "$REVIEWER" \
   --arg task "$TASK_ARGUMENTS" \
   --arg pr_url "$PR_URL" \
+  --arg baseline_tree "$BASELINE_TREE" \
   --argjson round 1 \
   --argjson max_rounds "$MAX_ROUNDS" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at} |
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
    if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"

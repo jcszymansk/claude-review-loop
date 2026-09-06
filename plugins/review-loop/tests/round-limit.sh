@@ -80,7 +80,7 @@ mkdir -p "$SETUP_PROJECT" "$SETUP_HOME"
     REVIEW_LOOP_REVIEWER=codex REVIEW_LOOP_MAX_ROUNDS=6 \
     "$SETUP" "configured rounds"
 )
-jq -e '.max_rounds == 6 and .round == 1 and .phase == "task"' \
+jq -e '.max_rounds == 6 and .round == 1 and .phase == "task" and (.baseline_tree | type == "string")' \
   "$SETUP_PROJECT/.claude/review-loop.local.json" >/dev/null
 
 printf 'round-limit tests passed\n'

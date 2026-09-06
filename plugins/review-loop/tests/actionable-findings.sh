@@ -94,9 +94,9 @@ assert_agent_contracts() {
       ;;
   esac
   case "$prompt" in
-    *'AGENT 2: Holistic Review'*'file path and line number (or directory for structural issues), severity (critical/high/medium/low), category, explanation, and suggested fix'*) ;;
+    *'AGENT 2: Task-Related Structure Review'*'file path and line number (or directory for structural issues), severity (critical/high/medium/low), category, explanation, and suggested fix'*) ;;
     *)
-      printf 'FAIL: %s prompt dropped the holistic agent finding contract\n' "$label" >&2
+      printf 'FAIL: %s prompt dropped the task-structure agent finding contract\n' "$label" >&2
       exit 1
       ;;
   esac
@@ -132,21 +132,21 @@ all_prompt=$(cat "$PROMPT_CAPTURE")
 assert_required_fields_rule "$all_prompt" "all-features"
 assert_agent_contracts "$all_prompt" "all-features"
 case "$all_prompt" in
-  *'AGENT 3: Next.js & React Best Practices Review'*'category, explanation, and suggested fix'*) ;;
+  *'AGENT 3: Task-Related Next.js & React Review'*'category, explanation, and suggested fix'*) ;;
   *)
     printf 'FAIL: all-features prompt dropped the Next.js agent finding contract\n' >&2
     exit 1
     ;;
 esac
 case "$all_prompt" in
-  *'AGENT (SPEC): Specification and Plan Compliance Review'*'the closest line for plan-level issues'*'explanation, and a concrete suggested fix'*) ;;
+  *'AGENT (SPEC): Specification and Plan Compliance Review'*'the closest line for task-level issues'*'explanation, and a concrete suggested fix'*) ;;
   *)
     printf 'FAIL: all-features prompt dropped the spec agent finding contract\n' >&2
     exit 1
     ;;
 esac
 case "$all_prompt" in
-  *'AGENT (UX): Browser-Based UX Review'*'file path and line number of the component or page'*'suggested fix'*) ;;
+  *'AGENT (UX): Task-Related Browser UX Review'*'file path and line number of the component or page'*'suggested fix'*) ;;
   *)
     printf 'FAIL: all-features prompt dropped the UX agent finding contract\n' >&2
     exit 1

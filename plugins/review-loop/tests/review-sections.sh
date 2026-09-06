@@ -81,9 +81,10 @@ assert_always_sections() {
       ;;
   esac
   case "$prompt" in
-    *'AGENT 2: Holistic Review'*'Architecture:'*) ;;
+    *'AGENT 2: Task-Related Structure Review'*'Task-Related Architecture:'*)
+      ;;
     *)
-      printf 'FAIL: %s prompt dropped the architecture review section\n' "$label" >&2
+      printf 'FAIL: %s prompt dropped the task-structure review section\n' "$label" >&2
       exit 1
       ;;
   esac
@@ -96,7 +97,7 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null
 plain_prompt=$(cat "$PROMPT_CAPTURE")
 assert_always_sections "$plain_prompt" "plain"
 case "$plain_prompt" in
-  *'AGENT 3: Next.js'*|*'AGENT (UX)'*)
+  *'AGENT 3: Task-Related Next.js'*|*'AGENT (UX)'*)
     printf 'FAIL: plain project got conditional framework or UX review\n' >&2
     exit 1
     ;;
@@ -110,14 +111,14 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null
 nextjs_prompt=$(cat "$PROMPT_CAPTURE")
 assert_always_sections "$nextjs_prompt" "nextjs"
 case "$nextjs_prompt" in
-  *'AGENT 3: Next.js & React Best Practices Review'*'App Router & Server Components'*) ;;
+  *'AGENT 3: Task-Related Next.js & React Review'*'App Router & Server Components'*) ;;
   *)
     printf 'FAIL: Next.js project omitted the framework review section\n' >&2
     exit 1
     ;;
 esac
 case "$nextjs_prompt" in
-  *'AGENT (UX): Browser-Based UX Review'*) ;;
+  *'AGENT (UX): Task-Related Browser UX Review'*) ;;
   *)
     printf 'FAIL: Next.js project omitted the UX review section\n' >&2
     exit 1
@@ -131,14 +132,14 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null
 ui_prompt=$(cat "$PROMPT_CAPTURE")
 assert_always_sections "$ui_prompt" "ui-only"
 case "$ui_prompt" in
-  *'AGENT (UX): Browser-Based UX Review'*) ;;
+  *'AGENT (UX): Task-Related Browser UX Review'*) ;;
   *)
     printf 'FAIL: UI project omitted the UX review section\n' >&2
     exit 1
     ;;
 esac
 case "$ui_prompt" in
-  *'AGENT 3: Next.js'*)
+  *'AGENT 3: Task-Related Next.js'*)
     printf 'FAIL: UI-only project got the Next.js review section\n' >&2
     exit 1
     ;;
@@ -151,7 +152,7 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null
 js_prompt=$(cat "$PROMPT_CAPTURE")
 assert_always_sections "$js_prompt" "plain-js"
 case "$js_prompt" in
-  *'AGENT 3: Next.js'*|*'AGENT (UX)'*)
+  *'AGENT 3: Task-Related Next.js'*|*'AGENT (UX)'*)
     printf 'FAIL: non-Next.js JS project got conditional framework or UX review\n' >&2
     exit 1
     ;;

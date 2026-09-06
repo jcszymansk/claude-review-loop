@@ -68,6 +68,7 @@ clear_child_pid() {
 }
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 PR_URL_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-pr-url.sh"
+BASELINE_SCRIPT="$REVIEWER_SCRIPTS_DIR/capture-worktree-tree.sh"
 PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
 STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
 case "$STOP_HOOK_SCRIPT" in
@@ -98,6 +99,7 @@ if ! jq -e '
   and (.max_rounds | type == "number" and . >= 1)
   and (.review_id | type == "string")
   and ((has("pr_url") | not) or (.pr_url | type == "string"))
+  and ((has("baseline_tree") | not) or (.baseline_tree | type == "string"))
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
   cleanup_runtime_files
@@ -180,7 +182,6 @@ correction_summary_is_usable() {
 
 
 
-
 if ! ACTIVE=$(parse_field "active") ||
   ! PHASE=$(parse_field "phase") ||
   ! REVIEWER=$(parse_field "reviewer") ||
@@ -188,7 +189,8 @@ if ! ACTIVE=$(parse_field "active") ||
   ! ROUND=$(parse_field "round") ||
   ! MAX_ROUNDS=$(parse_field "max_rounds") ||
   ! REVIEW_ID=$(parse_field "review_id") ||
-  ! PR_URL=$(parse_field "pr_url"); then
+  ! PR_URL=$(parse_field "pr_url") ||
+  ! BASELINE_TREE=$(parse_field "baseline_tree"); then
   log "ERROR: failed to read JSON state file"
   cleanup_runtime_files
   printf '{"decision":"approve"}\n'
@@ -197,6 +199,10 @@ fi
 if [ "$PR_URL" = "null" ]; then
   PR_URL=""
 fi
+if [ "$BASELINE_TREE" = "null" ]; then
+  BASELINE_TREE=""
+fi
+TASK_DIFF_FILE=""
 REVIEW_SCOPE="local branch diff"
 
 if [ -z "$REVIEWER" ] || [ "$REVIEWER" = "null" ]; then
@@ -288,6 +294,25 @@ detect_spec_or_plan() {
 
 
 # ── Branch diff ─────────────────────────────────────────────────────────────
+compute_task_diff() {
+  local output_file="$1"
+  local current_tree
+
+  [ -n "$BASELINE_TREE" ] || return 1
+  git cat-file -e "${BASELINE_TREE}^{tree}" >/dev/null 2>&1 || return 1
+  current_tree=$("$BASELINE_SCRIPT") || return 1
+  [ -n "$current_tree" ] || return 1
+
+  {
+    printf '# Task diff\n\n'
+    printf 'Base: %s (captured when the review loop started)\n\n' "$BASELINE_TREE"
+    git diff --no-ext-diff "$BASELINE_TREE" "$current_tree" -- \
+      . \
+      ':(exclude)reviews/**' \
+      ':(exclude).claude/review-loop*'
+  } > "$output_file"
+}
+
 compute_branch_diff() {
   local output_file="$1"
   local current_branch
@@ -491,11 +516,6 @@ build_prior_round_history() {
   local history_name
   local history_content
 
-  if [ "$ROUND" -le 1 ]; then
-    printf 'No previous review rounds.\n'
-    return 0
-  fi
-
   if [ -r "$REVIEW_DIR/summary-0.md" ] &&
     history_content=$(cat "$REVIEW_DIR/summary-0.md"); then
     history="### Initial implementation summary (summary-0.md)
@@ -552,6 +572,7 @@ render_prompt_template() {
   replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
   replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
   replace_prompt_placeholder "__TASK__" "$TASK"
+  replace_prompt_placeholder "__TASK_DIFF_FILE__" "$TASK_DIFF_FILE"
   replace_prompt_placeholder "__PR_URL__" "$PR_URL"
   replace_prompt_placeholder "__REVIEW_SCOPE__" "$REVIEW_SCOPE"
   replace_prompt_placeholder "__PRIOR_ROUND_HISTORY__" "$PRIOR_ROUND_HISTORY"
@@ -696,6 +717,12 @@ case "$PHASE" in
       exit 0
     fi
     BRANCH_DIFF_FILE="${REVIEW_DIR}/branch-diff.md"
+    TASK_DIFF_FILE="${REVIEW_DIR}/task-diff.md"
+    rm -f "$TASK_DIFF_FILE"
+    if [ -n "$BASELINE_TREE" ] && ! compute_task_diff "$TASK_DIFF_FILE"; then
+      log "WARN: failed to write task diff; reviewer will use the active scope artifact"
+      rm -f "$TASK_DIFF_FILE"
+    fi
     if ! compute_review_diff "$BRANCH_DIFF_FILE"; then
       log "ERROR: failed to write branch diff: $BRANCH_DIFF_FILE"
       cleanup_runtime_files

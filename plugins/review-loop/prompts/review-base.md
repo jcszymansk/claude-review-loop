@@ -1,6 +1,23 @@
-You are orchestrating a thorough, independent code review of recent changes in this repository.
+You are orchestrating a thorough, independent review of the requested task only.
 
 READ-ONLY RULE: this review is strictly read-only. Review agents must not create, edit, or delete any source, configuration, documentation, or test files, and must not run commands that change repository state. Findings are returned as structured text only. The single allowed write is the consolidated review artifact described below.
+
+SCOPE BOUNDARY (highest priority):
+This is a task review, not a general repository audit. Review only work performed for the original task during this review loop.
+
+Report a finding only when at least one of these is true:
+- The current task changed or added the code with the problem.
+- The original task explicitly requires behavior that the current task failed to implement.
+- The current task's change introduced a concrete correctness, security, or regression risk in surrounding code.
+
+Do not report:
+- Pre-existing issues, even when they are valid or severe.
+- Problems in unchanged code that the task did not introduce.
+- Issues from earlier branch or pull request work outside the current task.
+- General code quality, architecture, documentation, telemetry, type coverage, or UX gaps unrelated to the task.
+- Improvements that are useful but not required to complete the original task.
+
+Use surrounding code only to understand the current task's changes and verify their consequences. If a finding cannot be tied to both the original task and the active changed artifact, omit it. Never expand the review into a whole-project audit because a review section asks for holistic, architectural, framework, or UX checks.
 
 Original task:
 __TASK__
@@ -11,10 +28,12 @@ Prior history is context only. Review the current repository state independently
 
 Configured pull request URL (empty means no PR scope):
 __PR_URL__
+
 Active diff scope:
 __REVIEW_SCOPE__
-When the active diff scope is the pull request diff, every review agent MUST limit findings to the pull request diff in `__REVIEW_DIR__/branch-diff.md`. Inspect surrounding code only to understand those changed files and do not report unrelated repository, branch, worktree, documentation, architecture, or UX issues. When the active diff scope is a local branch diff, including a pull request fetch fallback, Agent 1 must focus on the changed artifact while the holistic and conditional agents retain their documented full-project review coverage.
-
+Task-start diff artifact (authoritative when present):
+__TASK_DIFF_FILE__
+Use the task-start diff artifact as the authoritative list of work performed after this review loop started. The active diff artifact may include earlier branch or pull request work and is supplemental context only. If the task-start artifact is unavailable, apply the SCOPE BOUNDARY conservatively and do not assume every active-diff hunk belongs to this task.
 
 Review the changes against the original task and flag missing or incorrect requested behavior.
 
@@ -27,7 +46,7 @@ ACTIONABLE FINDINGS REQUIREMENT: every finding MUST include all of these fields:
 
 A finding missing any required field is not actionable and MUST NOT be reported by any agent, and MUST NOT appear in the consolidated review.
 
-Use multi-agent to run the following review agents IN PARALLEL. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
+Use multi-agent to run the following review agents IN PARALLEL. Each agent must apply the SCOPE BOUNDARY above and return only task-related findings. Each agent should return its findings as structured text (not write to files). After ALL agents complete, consolidate their findings into a single deduplicated review file.
 
 IMPORTANT: Spawn one agent per review path below. Wait for all agents to finish. Then deduplicate overlapping findings and write the consolidated review to: __REVIEW_FILE__
 The first line of the consolidated review file MUST be exactly one of these two lines:
@@ -36,64 +55,39 @@ VERDICT: FAIL
 
 
 ---
-AGENT 1: Branch Diff Review (focus on scoped changes ONLY)
+AGENT 1: Branch Diff Review (focus on current-task changes ONLY)
 
-Read `__REVIEW_DIR__/branch-diff.md`. By default it contains the current branch changes relative to the detected base branch, plus staged, unstaged, and untracked worktree changes. When `REVIEW_LOOP_PR` or `--pr` selected a pull request, it contains that pull request's remote diff instead. Focus your review EXCLUSIVELY on this changed code. If the artifact says the base branch is unavailable, inspect the current worktree and branch history without assuming a fixed commit window.
+Read `__TASK_DIFF_FILE__` first when it exists; it is the authoritative diff for work performed after this review loop started. Read `__REVIEW_DIR__/branch-diff.md` only as supplemental context for the selected branch or pull request scope. The branch or pull request artifact may include work that predates this task. Use the original task and prior implementation summary to identify task intent, and focus findings EXCLUSIVELY on task-start changes. If the task-start artifact is unavailable, inspect the current worktree and branch history conservatively without assuming a fixed commit window.
 
-Review criteria for changed code:
+Review criteria for current-task code:
 
 Code Quality:
-- Is the changed code well-organized, modular, and readable?
-- Does it follow DRY principles — no copy-pasted blocks that should be abstracted?
-- Are names (variables, functions, files) clear and consistent with the codebase?
-- Are abstractions at the right level — not over-engineered, not under-abstracted?
-- Is there unnecessary complexity that could be simplified?
+- Is the task's changed code readable and consistent enough to implement the requested behavior?
+- Did the task introduce unnecessary duplication or an abstraction that creates a concrete maintenance problem?
 
 Test Coverage:
-- Does every new function/endpoint/component have corresponding tests?
-- Are edge cases covered: empty inputs, nulls, boundary values, error paths?
-- Are tests isolated, deterministic, and fast?
-- Do tests verify behavior (not implementation details)?
+- Does the task's changed behavior have the tests needed for its requested contract?
+- Are task-relevant edge cases and error paths covered?
 - For bug fixes: is there a regression test that would have caught the original bug?
 
 Security:
-- Input validation: are all user inputs validated and sanitized before use?
-- Authentication/authorization: are auth checks present on all protected routes/actions?
-- Injection: any risk of SQL injection, XSS, command injection, path traversal?
-- Secrets: are any credentials, API keys, or tokens hardcoded or logged?
-- OWASP Top 10: check for broken access control, cryptographic failures, insecure design, security misconfiguration, vulnerable dependencies, SSRF
-- Are error messages safe (no stack traces or internal details leaked to users)?
+- Did the task introduce input validation, authentication, injection, secret-handling, or OWASP Top 10 risks?
+- Are error messages from the task's changed paths safe?
 
 For each issue: return file path, line number, severity (critical/high/medium/low), category, explanation, and suggested fix.
 
 ---
-AGENT 2: Holistic Review (evaluate overall project structure and agent readiness)
+AGENT 2: Task-Related Structure Review
 
-When the active diff scope starts with `local branch diff`, read the full project directory structure, key config files, README, and any AGENTS.md / CLAUDE.md files. Perform the documented holistic review. When the active diff scope is `pull request diff`, read project structure, documentation, and agent configuration only as needed to understand the scoped changes, and report only problems caused by or required to understand files changed in that pull request.
+Review project structure, documentation, agent configuration, and architecture only where they were changed by the current task or are directly required for the requested behavior. Do not perform a general inventory of missing AGENTS.md files, telemetry, type coverage, environment-variable documentation, architectural patterns, or pre-existing code quality.
+Task-Related Architecture:
 
-Review criteria for the project, constrained by the active diff scope:
+Check only task-linked concerns:
+- Does the task's changed code fit the existing boundaries needed for the requested behavior?
+- Did the task create a concrete dependency, configuration, error-handling, or layering problem?
+- Are task-required documentation, configuration, or agent instructions missing?
+- Did the task introduce a concrete maintainability problem in the changed area?
 
-Code Organization & Modularity:
-- Is the project structure logical and navigable? Can a new developer (or agent) find things?
-- Are concerns properly separated (data access, business logic, presentation, config)?
-- Are there god files/functions that do too much and should be split?
-- Is shared code properly extracted into reusable modules?
-- Are import paths clean (absolute imports, no deep relative paths)?
-
-Documentation & Agent Harness:
-- Does every major directory have an AGENTS.md with operating guidelines for agents?
-- Is there a CLAUDE.md symlinked to each AGENTS.md for Claude Code compatibility?
-- Do AGENTS.md files document: conventions, file purposes, testing patterns, common pitfalls?
-- Is there telemetry/observability instrumentation (logging, metrics, tracing)?
-- Is there a type system in use (TypeScript, Python type hints, etc.) with proper coverage?
-- Are there proper constraints and guardrails so agents working on the code are set up for success?
-- Are environment variables documented and validated at startup?
-- Are there clear boundaries between server-only and client-safe code?
-
-Architecture:
-- Is the dependency graph clean (no circular dependencies)?
-- Are external integrations properly abstracted behind interfaces?
-- Is configuration centralized rather than scattered?
-- Is error handling consistent across the codebase?
+If no task-related structure finding exists, return no finding for this review path.
 
 For each issue: return file path and line number (or directory for structural issues), severity (critical/high/medium/low), category, explanation, and suggested fix.

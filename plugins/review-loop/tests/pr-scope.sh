@@ -125,13 +125,9 @@ esac
 fallback_prompt=$(cat "$PROMPT_CAPTURE")
 # shellcheck disable=SC2016 # backticks are literal prompt text
 case "$fallback_prompt" in
-  *'The active scope is `local branch diff (pull request fetch failed; see warning in artifact)`'*) ;;
-  *) printf 'FAIL: fallback prompt retained strict PR scope\n' >&2; exit 1 ;;
-esac
-# shellcheck disable=SC2016 # backticks are literal prompt text
-case "$fallback_prompt" in
-  *'When the active diff scope starts with `local branch diff`, read the full project directory structure'*) ;;
-  *) printf 'FAIL: fallback prompt lost holistic review coverage\n' >&2; exit 1 ;;
+  *'SCOPE BOUNDARY (highest priority)'*'Do not report:'*'Pre-existing issues, even when they are valid or severe.'*)
+    ;;
+  *) printf 'FAIL: fallback prompt lost the task-only finding boundary\n' >&2; exit 1 ;;
 esac
 
 COMMAND_PROJECT="$TMP_DIR/command-project"
@@ -149,7 +145,7 @@ git -C "$COMMAND_PROJECT" commit -qm base
     "$COMMAND_SCRIPT" >/dev/null
 )
 command_state="$COMMAND_PROJECT/.claude/review-loop.local.json"
-jq -e '.pr_url == "https://github.com/acme/api/pull/55" and .task == "command path task"' \
+jq -e '.pr_url == "https://github.com/acme/api/pull/55" and .task == "command path task" and (.baseline_tree | type == "string")' \
   "$command_state" >/dev/null
 command_output=$(cd "$COMMAND_PROJECT" && \
   env PATH="$BIN_DIR:$PATH" HOME="$TMP_DIR/home" FAKE_PROMPT_FILE="$PROMPT_CAPTURE" \

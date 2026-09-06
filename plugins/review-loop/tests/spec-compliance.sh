@@ -92,7 +92,7 @@ case "$spec_prompt" in
     ;;
 esac
 case "$spec_prompt" in
-  *'Category: which review path found it (Diff, Holistic, Spec Compliance, Next.js, UX)'*) ;;
+  *'Category: which task-related review path found it (Diff, Task Structure, Spec Compliance, Next.js, UX)'*) ;;
   *)
     printf 'FAIL: consolidation prompt omitted spec review category\n' >&2
     exit 1

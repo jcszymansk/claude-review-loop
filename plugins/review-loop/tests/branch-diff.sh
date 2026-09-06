@@ -99,6 +99,13 @@ case "$review_prompt" in
     ;;
 esac
 case "$review_prompt" in
+  *'### Initial implementation summary (summary-0.md)'*'branch diff test'*) ;;
+  *)
+    printf 'FAIL: round-one review prompt omitted the implementation summary\n' >&2
+    exit 1
+    ;;
+esac
+case "$review_prompt" in
   *'HEAD~5'*)
     printf 'FAIL: review prompt retained fixed commit window\n' >&2
     exit 1
@@ -112,16 +119,10 @@ case "$review_prompt" in
 esac
 # shellcheck disable=SC2016 # backticks are literal prompt text
 case "$review_prompt" in
-  *'When the active diff scope starts with `local branch diff`, read the full project directory structure'*) ;;
-  *)
-    printf 'FAIL: no-PR review prompt lost full holistic review\n' >&2
-    exit 1
+  *'SCOPE BOUNDARY (highest priority)'*'This is a task review, not a general repository audit'*)
     ;;
-esac
-case "$review_prompt" in
-  *'holistic and conditional agents retain their documented full-project review coverage'*) ;;
   *)
-    printf 'FAIL: local branch scope lost holistic review coverage\n' >&2
+    printf 'FAIL: branch review prompt lost the task scope boundary\n' >&2
     exit 1
     ;;
 esac

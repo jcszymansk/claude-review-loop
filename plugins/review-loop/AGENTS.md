@@ -13,8 +13,8 @@ A Claude Code plugin that creates a bounded review loop:
 - Shell scripts must work on both macOS and Linux (handle `sed -i` differences)
 - The stop hook MUST always produce valid JSON to stdout — never let non-JSON text leak
 - Fail-open: on any error, approve exit rather than trapping the user
-- State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`; an optional validated `pr_url` keeps pull request scope stable across rounds. Clean up runtime state on exit, but never remove `reviews/<review_id>/` history
-- Each loop gets a validated `reviews/<review_id>/` directory containing `branch-diff.md`, `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; retain it for every terminal outcome.
+- State lives in `.claude/review-loop.local.json` as JSON with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, `started_at`, and the task-start `baseline_tree`; an optional validated `pr_url` keeps pull request scope stable across rounds. Clean up runtime state on exit, but never remove `reviews/<review_id>/` history
+- Each loop gets a validated `reviews/<review_id>/` directory containing `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-<round>.md`, and `summary-<round>.md` artifacts; `task-diff.md` is the authoritative diff for work performed after loop start, and history is retained for every terminal outcome.
 - Reviewer runner scripts (`.claude/review-loop-run-codex.sh`, `.claude/review-loop-run-gemini.sh`, or `.claude/review-loop-run-cursor.sh`) run the selected provider and capture its output in the current round artifact; a non-zero reviewer exit preserves the artifact as a numbered `review-<round>.md.reviewer-error.<n>` file so a failed review can never be accepted as PASS; the active child PID is tracked in `.claude/review-loop-child.pid`.
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict is treated as `FAIL` and blocks exit until the review is fixed or rerun
@@ -65,6 +65,7 @@ CI also runs `shellcheck -x plugins/review-loop/hooks/*.sh plugins/review-loop/s
 - `legacy-codex.sh` — Codex behavior without reviewer configuration, including legacy state files
 - `correction-session.sh` — fresh interactive correction session launch, review/summary prompt paths, and fallback when `claude` is unavailable
 - `branch-diff.sh` — current branch diff scope, upstream fallback, unborn repositories, and untracked files
+- `task-diff.sh` — task-start tree snapshot excludes pre-existing staged, unstaged, and untracked worktree changes from the authoritative task diff
 - `pr-scope.sh` — GitHub and Gitea pull request diff scoping with local branch fallback and warning
 - `review-sections.sh` — conditional diff, architecture, framework, and UX review sections
 - `spec-compliance.sh` — spec-compliance review when a specification or plan exists

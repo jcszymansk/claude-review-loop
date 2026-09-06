@@ -18,18 +18,13 @@ The result: every task gets an independent second opinion before you accept the 
 
 ## Review coverage
 
-The plugin runs one of `codex`, `gemini`, or `cursor-agent` for the review. Codex still uses its configured parallel sub-agents; Gemini and Cursor receive the same review prompt as a single headless invocation.
+| **Diff Review** | Yes | Current-task changes in the selected branch or GitHub/Gitea pull request diff, plus task-relevant code quality, test coverage, and security (OWASP top 10) |
+| **Task-Related Structure Review** | Yes | Project structure, documentation, AGENTS.md, agent harness, and architecture only when changed by or required for the current task |
+| **Spec Compliance Review** | If `SPEC.md`, `spec.md`, `SPECIFICATION.md`, `specification.md`, `PLAN.md`, `plan.md`, or matching files under `docs/` exists | Documented requirements, acceptance criteria, plan completion, and requirement-specific test coverage for the current task |
+| **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | Task-changed App Router, Server Components, caching, Server Actions, React performance |
+| **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E, accessibility, and responsive behavior for task-changed UI |
 
-
-| Agent | Always runs? | Focus |
-|-------|-------------|-------|
-| **Diff Review** | Yes | Current branch diff, or the selected GitHub/Gitea pull request diff, plus code quality, test coverage, and security (OWASP top 10) |
-| **Holistic Review** | Yes | Project structure, documentation, AGENTS.md, agent harness, architecture |
-| **Spec Compliance Review** | If `SPEC.md`, `spec.md`, `SPECIFICATION.md`, `specification.md`, `PLAN.md`, `plan.md`, or matching files under `docs/` exists | Documented requirements, acceptance criteria, plan completion, and requirement-specific test coverage |
-| **Next.js Review** | If `next.config.*` or `"next"` in `package.json` | App Router, Server Components, caching, Server Actions, React performance |
-| **UX Review** | If `app/`, `pages/`, `public/`, or `index.html` exists | Browser E2E via [agent-browser](https://agent-browser.dev/), accessibility, responsive design |
-
-Each loop stores its branch diff and conversation artifacts together under `reviews/<id>/`: `branch-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
+Each loop stores its branch and task diff artifacts and conversation history together under `reviews/<id>/`: `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and numbered files for later rounds.
 
 Set `REVIEW_LOOP_PR` to a GitHub or Gitea pull request URL to review that
 pull request instead of the local branch diff. The setup script also accepts
@@ -120,7 +115,7 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 
 The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and correction sessions run with `REVIEW_LOOP_CORRECTION=1` so they cannot recursively start another review.
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, and `started_at`, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid` and `review-loop-retries` used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, `started_at`, and the task-start baseline tree, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid` and `review-loop-retries` used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
 
 ## File structure
 
@@ -143,6 +138,7 @@ claude-review-loop/
     │   └── stop-hook.sh           # Core lifecycle engine
     ├── scripts/
     │   ├── setup-review-loop.sh   # Argument parsing, state file creation
+    │   ├── capture-worktree-tree.sh # Capture the task-start worktree tree
     │   ├── resolve-reviewer.sh    # Reviewer selection and config precedence
     │   ├── resolve-max-rounds.sh  # Round-limit selection and validation
     │   ├── run-reviewer.sh        # Codex, Gemini, and Cursor dispatch
