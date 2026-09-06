@@ -16,6 +16,7 @@ Set `REVIEW_LOOP_PR` or start the command with `--pr <url>` to scope the
 review to a GitHub or Gitea pull request.
 
 ```bash
+#!/usr/bin/env bash
 set -e
 
 PR_URL="${REVIEW_LOOP_PR:-}"
