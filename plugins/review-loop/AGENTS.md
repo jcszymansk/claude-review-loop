@@ -20,8 +20,7 @@ A Claude Code plugin that creates a bounded review loop:
 - The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict is treated as `FAIL` and blocks exit until the review is fixed or rerun
 - A missing review artifact prompts Claude to rerun the generated runner script once (counted in `.claude/review-loop-retries`); on the second stop without an artifact the hook fails open
 - Fresh correction sessions run with `REVIEW_LOOP_CORRECTION=1`; the hook approves their exit immediately so a correction session can never recursively start another review
-- `REVIEW_LOOP_PR` or `--pr <url>` selects a GitHub or Gitea pull request; the hook fetches its diff with `curl` and falls back to the local branch diff with a warning when the fetch fails
-- Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines
+- Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines; `REVIEW_LOOP_DEBUG=1` additionally preserves reviewer invocation metadata and raw provider stdout/stderr in `.claude/review-loop-debug.log`
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
 - Claude Code does NOT set `stop_hook_active` in hook input — do not rely on it for re-entrancy detection

@@ -28,6 +28,7 @@ export FAKE_ARGS_FILE="$ARGS_FILE" FAKE_STDIN_FILE="$STDIN_FILE"
 # Never inherit reviewer or flag settings from the calling environment: the
 # default-argv assertions below must pass on any developer or CI machine.
 unset REVIEW_LOOP_REVIEWER REVIEW_LOOP_CODEX_FLAGS REVIEW_LOOP_GEMINI_FLAGS REVIEW_LOOP_CURSOR_FLAGS
+unset REVIEW_LOOP_DEBUG REVIEW_LOOP_DEBUG_FILE
 
 cat > "$BIN_DIR/fake-reviewer" <<'FAKE_EOF'
 #!/usr/bin/env bash
@@ -37,6 +38,9 @@ for arg in "$@"; do
 done
 if [ -n "${FAKE_CAPTURE_STDIN:-}" ]; then
   cat > "$FAKE_STDIN_FILE"
+fi
+if [ -n "${FAKE_STDERR:-}" ]; then
+  printf '%s\n' "$FAKE_STDERR" >&2
 fi
 case "${FAKE_MODE:-pass}" in
   pass) printf 'VERDICT: PASS\nfake review body\n' ;;
@@ -291,5 +295,19 @@ set +e
 set -e
 unset FAKE_MODE
 [ -f "$REVIEW_FILE.reviewer-error.2" ]
+DEBUG_FILE="$TMP_DIR/reviewer-debug.log"
+export FAKE_MODE=pass FAKE_STDERR='stderr from fake reviewer'
+"$RUNNER" cursor "$PROMPT_FILE" "$REVIEW_FILE" >/dev/null
+[ ! -e "$DEBUG_FILE" ]
+rm -f "$REVIEW_FILE"
+
+export REVIEW_LOOP_DEBUG=1 REVIEW_LOOP_DEBUG_FILE="$DEBUG_FILE"
+"$RUNNER" cursor "$PROMPT_FILE" "$REVIEW_FILE" >/dev/null
+unset REVIEW_LOOP_DEBUG REVIEW_LOOP_DEBUG_FILE FAKE_MODE FAKE_STDERR
+[ -s "$DEBUG_FILE" ]
+grep -q 'reviewer=cursor' "$DEBUG_FILE"
+grep -q 'invoke=cursor-agent' "$DEBUG_FILE"
+grep -q 'stderr from fake reviewer' "$DEBUG_FILE"
+grep -q 'fake review body' "$DEBUG_FILE"
 
 printf 'command construction tests passed\n'

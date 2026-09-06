@@ -205,10 +205,16 @@ limit causes setup to fail instead of silently falling back to another source.
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
 | `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Override the flags passed to `gemini` after its non-interactive prompt. |
 | `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |
+| `REVIEW_LOOP_DEBUG` | unset | Set to `1` to append reviewer metadata and raw provider stdout/stderr to `.claude/review-loop-debug.log`. |
 
 ### Telemetry
 
-Execution logs are written to `.claude/review-loop.log` with timestamps, reviewer exit codes, and elapsed times. This file is gitignored.
+Execution logs are written to `.claude/review-loop.log` with timestamps,
+reviewer exit codes, and elapsed times. For intermittent reviewer failures,
+start Claude with `REVIEW_LOOP_DEBUG=1`; the runner also appends reviewer
+invocation metadata, CLI path, and raw provider stdout/stderr to
+`.claude/review-loop-debug.log`. Both files survive review-loop cleanup.
+Debug output can contain review content, so keep it local.
 
 ## Credits
 
