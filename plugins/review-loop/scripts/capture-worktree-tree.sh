@@ -9,7 +9,7 @@ INDEX_FILE="$(mktemp "${TMPDIR:-/tmp}/review-loop-index.XXXXXX")"
 rm -f "$INDEX_FILE"
 trap 'rm -f "$INDEX_FILE"' EXIT
 
-if git rev-parse --verify HEAD^{commit} >/dev/null 2>&1; then
+if git rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1; then
   GIT_INDEX_FILE="$INDEX_FILE" git read-tree HEAD
 else
   GIT_INDEX_FILE="$INDEX_FILE" git read-tree --empty
