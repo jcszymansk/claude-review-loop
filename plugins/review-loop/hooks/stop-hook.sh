@@ -683,7 +683,7 @@ start_correction_session() {
   log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
   if [ -n "$tty_device" ] && [ -r "$tty_device" ] && [ -w "$tty_device" ]; then
     # shellcheck disable=SC2094 # same tty intentionally provides stdin and stdout
-    env -u CLAUDECODE REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1 &
+    env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1 &
     correction_pid=$!
     write_child_pid "$correction_pid"
     if wait "$correction_pid"; then

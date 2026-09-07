@@ -15,6 +15,7 @@ CLAUDE_ARGS_FILE="$TMP_DIR/claude-args"
 CLAUDE_PROMPT_FILE="$TMP_DIR/claude-prompt"
 CLAUDE_ENV_FILE="$TMP_DIR/claude-env"
 CLAUDECODE_FILE="$TMP_DIR/claudecode"
+ENTRYPOINT_FILE="$TMP_DIR/claude-code-entrypoint"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -50,6 +51,7 @@ printf '%s' "$*" > "$FAKE_CLAUDE_ARGS_FILE"
 printf '%s' "${!#}" > "$FAKE_CLAUDE_PROMPT_FILE"
 printf '%s' "${REVIEW_LOOP_CORRECTION:-}" > "$FAKE_CLAUDE_ENV_FILE"
 printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_FILE"
+printf '%s' "${CLAUDE_CODE_ENTRYPOINT:-}" > "$FAKE_ENTRYPOINT_FILE"
 cat > "$FAKE_CLAUDE_SUMMARY_FILE" <<'SUMMARY_EOF'
 ## Fixes
 - fixed the failing behavior
@@ -88,8 +90,10 @@ exec env \
   FAKE_CLAUDE_PROMPT_FILE="$CLAUDE_PROMPT_FILE" \
   FAKE_CLAUDE_ENV_FILE="$CLAUDE_ENV_FILE" \
   FAKE_CLAUDECODE_FILE="$CLAUDECODE_FILE" \
+  FAKE_ENTRYPOINT_FILE="$ENTRYPOINT_FILE" \
   FAKE_CLAUDE_SUMMARY_FILE="$SUMMARY_FILE" \
   CLAUDECODE=parent-marker \
+  CLAUDE_CODE_ENTRYPOINT=parent-marker \
   "$HOOK"
 HOOK_EOF
 chmod +x "$PTY_HOOK"
@@ -239,6 +243,10 @@ if [ "$(cat "$CLAUDE_ENV_FILE")" != "1" ]; then
 fi
 if [ -s "$CLAUDECODE_FILE" ]; then
   printf 'FAIL: correction session inherited CLAUDECODE\n' >&2
+  exit 1
+fi
+if [ -s "$ENTRYPOINT_FILE" ]; then
+  printf 'FAIL: correction session inherited CLAUDE_CODE_ENTRYPOINT\n' >&2
   exit 1
 fi
 
