@@ -42,11 +42,6 @@ case "$REVIEWER" in
     REVIEWER_NAME="Codex"
     REVIEWER_INSTALL="npm install -g @openai/codex"
     ;;
-  gemini)
-    REVIEWER_CLI="gemini"
-    REVIEWER_NAME="Gemini"
-    REVIEWER_INSTALL="npm install -g @google/gemini-cli"
-    ;;
   cursor)
     REVIEWER_CLI="cursor-agent"
     REVIEWER_NAME="Cursor Agent"

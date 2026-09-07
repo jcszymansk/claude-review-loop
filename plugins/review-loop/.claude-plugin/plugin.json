@@ -1,11 +1,11 @@
 {
   "name": "review-loop",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "Automated code review loop: Claude implements, a configurable reviewer reviews independently, and Claude addresses feedback",
   "author": {
     "name": "Hamel Husain"
   },
   "repository": "https://github.com/jcszymansk/claude-review-loop",
   "license": "MIT",
-  "keywords": ["code-review", "codex", "gemini", "cursor", "quality", "automation"]
+  "keywords": ["code-review", "codex", "cursor", "quality", "automation"]
 }

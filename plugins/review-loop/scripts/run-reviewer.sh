@@ -9,7 +9,7 @@ DEBUG_ENABLED="${REVIEW_LOOP_DEBUG:-}"
 DEBUG_FILE="${REVIEW_LOOP_DEBUG_FILE:-.claude/review-loop-debug.log}"
 
 if [ -z "$REVIEWER" ] || [ -z "$PROMPT_FILE" ] || [ ! -f "$PROMPT_FILE" ]; then
-  echo "Usage: run-reviewer.sh <codex|gemini|cursor> <prompt-file> [review-file]" >&2
+  echo "Usage: run-reviewer.sh <codex|cursor> <prompt-file> [review-file]" >&2
   exit 2
 fi
 
@@ -29,12 +29,6 @@ run_reviewer() {
       debug_log "invoke=codex prompt_mode=argument cli_path=$(command -v codex 2>/dev/null || printf 'unavailable')"
       # shellcheck disable=SC2086
       codex ${CODEX_FLAGS} exec "$(cat "$PROMPT_FILE")"
-      ;;
-    gemini)
-      GEMINI_FLAGS="${REVIEW_LOOP_GEMINI_FLAGS:---output-format text}"
-      debug_log "invoke=gemini prompt_mode=argument cli_path=$(command -v gemini 2>/dev/null || printf 'unavailable')"
-      # shellcheck disable=SC2086
-      gemini -p "$(cat "$PROMPT_FILE")" ${GEMINI_FLAGS}
       ;;
     cursor)
       CURSOR_FLAGS="${REVIEW_LOOP_CURSOR_FLAGS:---output-format text}"

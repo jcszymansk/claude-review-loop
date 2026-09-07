@@ -27,7 +27,7 @@ export FAKE_ARGS_FILE="$ARGS_FILE" FAKE_STDIN_FILE="$STDIN_FILE"
 
 # Never inherit reviewer or flag settings from the calling environment: the
 # default-argv assertions below must pass on any developer or CI machine.
-unset REVIEW_LOOP_REVIEWER REVIEW_LOOP_CODEX_FLAGS REVIEW_LOOP_GEMINI_FLAGS REVIEW_LOOP_CURSOR_FLAGS
+unset REVIEW_LOOP_REVIEWER REVIEW_LOOP_CODEX_FLAGS REVIEW_LOOP_CURSOR_FLAGS
 unset REVIEW_LOOP_DEBUG REVIEW_LOOP_DEBUG_FILE
 
 cat > "$BIN_DIR/fake-reviewer" <<'FAKE_EOF'
@@ -53,7 +53,6 @@ esac
 FAKE_EOF
 chmod +x "$BIN_DIR/fake-reviewer"
 ln -s fake-reviewer "$BIN_DIR/codex"
-ln -s fake-reviewer "$BIN_DIR/gemini"
 ln -s fake-reviewer "$BIN_DIR/cursor-agent"
 
 printf 'Review this diff.\nLine two.\n' > "$PROMPT_FILE"
@@ -98,15 +97,6 @@ export FAKE_MODE=pass
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
 
-"$RUNNER" gemini "$PROMPT_FILE"
-{
-  printf 'gemini\n'
-  printf '<-p>\n'
-  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
-  printf '<--output-format>\n'
-  printf '<text>\n'
-} > "$EXPECTED_ARGS"
-assert_args "$EXPECTED_ARGS"
 
 export FAKE_CAPTURE_STDIN=1
 "$RUNNER" cursor "$PROMPT_FILE"
@@ -137,17 +127,6 @@ unset REVIEW_LOOP_CODEX_FLAGS
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
 
-export REVIEW_LOOP_GEMINI_FLAGS='--model gemini-2.5-pro'
-"$RUNNER" gemini "$PROMPT_FILE"
-unset REVIEW_LOOP_GEMINI_FLAGS
-{
-  printf 'gemini\n'
-  printf '<-p>\n'
-  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
-  printf '<--model>\n'
-  printf '<gemini-2.5-pro>\n'
-} > "$EXPECTED_ARGS"
-assert_args "$EXPECTED_ARGS"
 
 export REVIEW_LOOP_CURSOR_FLAGS='--print-timing'
 "$RUNNER" cursor "$PROMPT_FILE"
@@ -170,19 +149,6 @@ unset FAKE_MODE
 export FAKE_MODE=pass
 
 # Environment variable wins with no configuration present.
-(
-  cd "$PROJECT_DIR"
-  env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=gemini "$RESOLVER"
-) > "$RESOLVED_REVIEWER"
-"$RUNNER" "$(cat "$RESOLVED_REVIEWER")" "$PROMPT_FILE"
-{
-  printf 'gemini\n'
-  printf '<-p>\n'
-  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
-  printf '<--output-format>\n'
-  printf '<text>\n'
-} > "$EXPECTED_ARGS"
-assert_args "$EXPECTED_ARGS"
 
 # User config selects codex when no project config exists.
 mkdir -p "$HOME_DIR/.config/review-loop"

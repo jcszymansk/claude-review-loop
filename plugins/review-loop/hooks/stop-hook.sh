@@ -10,8 +10,7 @@
 #   REVIEW_LOOP_REVIEWER, .review-loop.toml, and
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml (default: codex)
 # REVIEW_LOOP_CODEX_FLAGS    Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
-# REVIEW_LOOP_GEMINI_FLAGS   Override Gemini flags (default: --output-format text)
-# REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text)
+# REVIEW_LOOP_CURSOR_FLAGS    Override Cursor Agent flags (default: --output-format text)
 
 LOG_FILE=".claude/review-loop.log"
 log() {
@@ -23,10 +22,8 @@ log() {
 cleanup_generated_files() {
   rm -f \
     .claude/review-loop-run-codex.sh \
-    .claude/review-loop-run-gemini.sh \
     .claude/review-loop-run-cursor.sh \
     .claude/review-loop-codex-prompt.txt \
-    .claude/review-loop-gemini-prompt.txt \
     .claude/review-loop-cursor-prompt.txt \
     .claude/review-loop-retries \
     .claude/review-loop-child.pid \
@@ -236,13 +233,6 @@ case "$REVIEWER" in
     REVIEWER_INSTALL="npm install -g @openai/codex"
     PROMPT_FILE=".claude/review-loop-codex-prompt.txt"
     RUNNER_SCRIPT=".claude/review-loop-run-codex.sh"
-    ;;
-  gemini)
-    REVIEWER_CLI="gemini"
-    REVIEWER_NAME="Gemini"
-    REVIEWER_INSTALL="npm install -g @google/gemini-cli"
-    PROMPT_FILE=".claude/review-loop-gemini-prompt.txt"
-    RUNNER_SCRIPT=".claude/review-loop-run-gemini.sh"
     ;;
   cursor)
     REVIEWER_CLI="cursor-agent"

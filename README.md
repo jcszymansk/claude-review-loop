@@ -35,7 +35,7 @@ warning and the hook falls back to the local branch diff.
 
 ## Requirements
 
-- One reviewer CLI: [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Cursor Agent](https://docs.cursor.com/en/cli)
+- One reviewer CLI: [Codex](https://github.com/openai/codex) or [Cursor Agent](https://docs.cursor.com/en/cli)
 - The Claude Code CLI (`claude`) — required for the fresh correction session that starts when a review returns `FAIL`
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
 - `curl` — required only for GitHub or Gitea pull request scoping
@@ -43,7 +43,7 @@ warning and the hook falls back to the local branch diff.
 
 ### Codex multi-agent
 
-When Codex is selected, the `/review-loop` command automatically enables [Codex multi-agent](https://developers.openai.com/codex/multi-agent/) in `~/.codex/config.toml` on first use. Gemini and Cursor do not need Codex configuration.
+When Codex is selected, the `/review-loop` command automatically enables [Codex multi-agent](https://developers.openai.com/codex/multi-agent/) in `~/.codex/config.toml` on first use. Cursor does not need Codex configuration.
 
 
 To set it up manually instead:
@@ -141,7 +141,7 @@ claude-review-loop/
     │   ├── capture-worktree-tree.sh # Capture the task-start worktree tree
     │   ├── resolve-reviewer.sh    # Reviewer selection and config precedence
     │   ├── resolve-max-rounds.sh  # Round-limit selection and validation
-    │   ├── run-reviewer.sh        # Codex, Gemini, and Cursor dispatch
+    │   ├── run-reviewer.sh        # Codex and Cursor dispatch
     │   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
     │   ├── cancel-review-loop.sh  # Stop active loop child processes
     │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
@@ -189,9 +189,9 @@ reviewer = "cursor"
 max_rounds = 5
 ```
 
-Supported reviewers are `codex`, `gemini`, and `cursor`. `max_rounds` must be
-an integer from 1 to 10. Malformed reviewer configuration or an invalid round
-limit causes setup to fail instead of silently falling back to another source.
+Supported reviewers are `codex` and `cursor`. `max_rounds` must be an integer
+from 1 to 10. Malformed reviewer configuration or an invalid round limit
+causes setup to fail instead of silently falling back to another source.
 
 ### Environment variables
 
@@ -203,7 +203,6 @@ limit causes setup to fail instead of silently falling back to another source.
 | `GITHUB_TOKEN` | unset | Optional token used to fetch private GitHub pull request diffs. |
 | `GITEA_TOKEN` | unset | Optional token used to fetch private Gitea pull request diffs. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
-| `REVIEW_LOOP_GEMINI_FLAGS` | `--output-format text` | Override the flags passed to `gemini` after its non-interactive prompt. |
 | `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |
 | `REVIEW_LOOP_DEBUG` | unset | Set to `1` to append reviewer metadata and raw provider stdout/stderr to `.claude/review-loop-debug.log`. |
 

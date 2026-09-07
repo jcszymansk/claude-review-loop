@@ -27,11 +27,10 @@ Starts a review loop:
   3. Claude addresses the feedback
 
 Environment variables:
-  REVIEW_LOOP_REVIEWER  Reviewer to run: codex, gemini, or cursor
+  REVIEW_LOOP_REVIEWER  Reviewer to run: codex or cursor
   REVIEW_LOOP_MAX_ROUNDS  Maximum review rounds, from 1 to 10 (default: 3)
   REVIEW_LOOP_PR  Optional GitHub or Gitea pull request URL to review
   REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
-  REVIEW_LOOP_GEMINI_FLAGS  Override Gemini flags (default: --output-format text)
   REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text)
 
 Configuration files:
@@ -82,10 +81,6 @@ case "$REVIEWER" in
   codex)
     REVIEWER_CLI="codex"
     REVIEWER_INSTALL="Install Codex CLI: npm install -g @openai/codex"
-    ;;
-  gemini)
-    REVIEWER_CLI="gemini"
-    REVIEWER_INSTALL="Install Gemini CLI: npm install -g @google/gemini-cli"
     ;;
   cursor)
     REVIEWER_CLI="cursor-agent"

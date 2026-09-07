@@ -123,7 +123,6 @@ assert_missing_cli() {
 }
 
 assert_missing_cli codex codex Codex 'npm install -g @openai/codex'
-assert_missing_cli gemini gemini Gemini 'npm install -g @google/gemini-cli'
 assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/install -fsS | bash'
 mkdir -p "$HOME_DIR/.codex"
 printf '[features]\nmulti_agent = true\n' > "$HOME_DIR/.codex/config.toml"

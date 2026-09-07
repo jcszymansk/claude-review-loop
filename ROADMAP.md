@@ -14,7 +14,7 @@ Claude implements
 → repeat until PASS or the round limit is reached
 ```
 
-Claude remains the implementer for now. The review CLI becomes configurable, with `cursor-agent` as the first priority while retaining Codex and Gemini support.
+Claude remains the implementer for now. The review CLI becomes configurable, with `cursor-agent` as the first priority while retaining Codex and Cursor support.
 
 ## Goals
 
@@ -56,7 +56,7 @@ Do not merge any fork wholesale. Each fork makes assumptions that do not match t
 
 Extract reviewer-specific behavior from `stop-hook.sh` into a small dispatch layer.
 
-- [x] Support `codex`, `gemini`, and `cursor` reviewers.
+- [x] Support `codex` and `cursor` reviewers.
 - [x] Resolve the reviewer in this order: `REVIEW_LOOP_REVIEWER`, project config, user config, default.
 - [x] Add reviewer-specific availability checks and flags.
 - [x] Add the Cursor headless invocation.
@@ -150,7 +150,7 @@ Add deterministic tests around the shell lifecycle before changing the default b
 The roadmap is complete when all of these hold:
 
 1. `REVIEW_LOOP_REVIEWER=cursor` runs a real review without Codex-specific setup.
-2. Codex and Gemini remain selectable through the same configuration path.
+2. Codex and Cursor remain selectable through the same configuration path.
 3. A `FAIL` review causes Claude to correct the code and triggers another review.
 4. A later `PASS` ends the loop and preserves every round artifact.
 5. Repeated failures stop at the configured limit and are reported as not accepted.
