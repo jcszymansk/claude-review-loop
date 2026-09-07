@@ -40,7 +40,7 @@ run_reviewer() {
       CLAUDE_FLAGS="${REVIEW_LOOP_CLAUDE_FLAGS:---permission-mode acceptEdits}"
       debug_log "invoke=claude prompt_mode=argument cli_path=$(command -v claude 2>/dev/null || printf 'unavailable')"
       # shellcheck disable=SC2086
-      env -u CLAUDECODE REVIEW_LOOP_REVIEWER_PROCESS=1 claude -p ${CLAUDE_FLAGS} "$(cat "$PROMPT_FILE")"
+      env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT REVIEW_LOOP_REVIEWER_PROCESS=1 claude -p ${CLAUDE_FLAGS} "$(cat "$PROMPT_FILE")"
       ;;
     *)
       echo "Unsupported reviewer: $REVIEWER" >&2

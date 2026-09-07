@@ -19,7 +19,7 @@ A Claude Code plugin that creates a bounded review loop:
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict is treated as `FAIL` and blocks exit until the review is fixed or rerun
 - A missing review artifact prompts Claude to rerun the generated runner script once (counted in `.claude/review-loop-retries`); on the second stop without an artifact the hook fails open
-- Fresh correction sessions run with `REVIEW_LOOP_CORRECTION=1`; Claude reviewer sessions run with `REVIEW_LOOP_REVIEWER_PROCESS=1` and without `CLAUDECODE`, so neither can recursively start another review
+- Fresh correction sessions run with `REVIEW_LOOP_CORRECTION=1`; Claude reviewer sessions run with `REVIEW_LOOP_REVIEWER_PROCESS=1` and without `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT`, so neither can recursively start another review
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines; `REVIEW_LOOP_DEBUG=1` additionally preserves reviewer invocation metadata and raw provider stdout/stderr in `.claude/review-loop-debug.log`
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
@@ -61,7 +61,7 @@ CI also runs `shellcheck -x plugins/review-loop/hooks/*.sh plugins/review-loop/s
 - `concurrent-isolation.sh` — two loops in one repository (root and nested directory) keep separate state, prompts, runner scripts, logs, and review history; one loop's cleanup never touches the other's files
 - `resolve-reviewer.sh` — reviewer precedence (`REVIEW_LOOP_REVIEWER` → project config → user config → default), including opt-in `claude`
 - `reviewer-availability.sh` — missing CLI blocks with install instructions and leaves no generated runtime files; retry gate and cancellation instructions for all supported reviewers
-- `command-construction.sh` — `run-reviewer.sh` builds the exact per-provider command (flags, prompt as argument for codex/claude vs stdin for cursor), rejects unsupported reviewers with exit 2, exports the Claude recursion guard without `CLAUDECODE`, and captures or quarantines review artifacts by verdict and exit status
+- `command-construction.sh` — `run-reviewer.sh` builds the exact per-provider command (flags, prompt as argument for codex/claude vs stdin for cursor), rejects unsupported reviewers with exit 2, exports the Claude recursion guard without `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT`, and captures or quarantines review artifacts by verdict and exit status
 - `legacy-codex.sh` — Codex behavior without reviewer configuration, including legacy state files
 - `correction-session.sh` — fresh interactive correction session launch, review/summary prompt paths, and fallback when `claude` is unavailable
 - `branch-diff.sh` — current branch diff scope, upstream fallback, unborn repositories, and untracked files

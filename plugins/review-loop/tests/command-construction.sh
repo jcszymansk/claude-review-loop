@@ -41,6 +41,7 @@ done
 if [ "$(basename "$0")" = "claude" ]; then
   printf 'reviewer-process=%s\n' "${REVIEW_LOOP_REVIEWER_PROCESS:-}" > "$FAKE_ENV_FILE"
   printf 'claudecode=%s\n' "${CLAUDECODE:-}" >> "$FAKE_ENV_FILE"
+  printf 'claude-code-entrypoint=%s\n' "${CLAUDE_CODE_ENTRYPOINT:-}" >> "$FAKE_ENV_FILE"
 fi
 if [ -n "${FAKE_CAPTURE_STDIN:-}" ]; then
   cat > "$FAKE_STDIN_FILE"
@@ -116,9 +117,9 @@ unset FAKE_CAPTURE_STDIN
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
 cmp "$PROMPT_FILE" "$STDIN_FILE"
-export CLAUDECODE=parent-marker
+export CLAUDECODE=parent-marker CLAUDE_CODE_ENTRYPOINT=parent-marker
 "$RUNNER" claude "$PROMPT_FILE"
-unset CLAUDECODE
+unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
 {
   printf 'claude\n'
   printf '<-p>\n'
@@ -129,6 +130,7 @@ unset CLAUDECODE
 assert_args "$EXPECTED_ARGS"
 grep -Fxq 'reviewer-process=1' "$ENV_FILE"
 grep -Fxq 'claudecode=' "$ENV_FILE"
+grep -Fxq 'claude-code-entrypoint=' "$ENV_FILE"
 
 unset FAKE_MODE
 
