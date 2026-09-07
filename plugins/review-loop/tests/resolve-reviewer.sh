@@ -88,7 +88,7 @@ assert_failure "removed environment reviewer" "unsupported reviewer 'gemini'" re
 printf 'review = "cursor"\n' > "$PROJECT_DIR/.review-loop.toml"
 assert_failure "malformed project config" "must define reviewer" resolve_with_xdg
 
-printf 'review = "gemini"\n' > "$HOME_DIR/.config/review-loop/config.toml"
+printf 'review = "codex"\n' > "$HOME_DIR/.config/review-loop/config.toml"
 rm -f "$PROJECT_DIR/.review-loop.toml"
 assert_failure "malformed user config" "must define reviewer" resolve_without_xdg
 

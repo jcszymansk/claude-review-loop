@@ -125,6 +125,7 @@ claude-review-loop/
 │   └── marketplace.json           # Marketplace manifest
 ├── .github/workflows/
 │   └── ci.yml                     # shellcheck + test suite
+├── CHANGELOG.md                   # Release history
 ├── README.md
 ├── ROADMAP.md                     # Task roadmap
 └── plugins/review-loop/

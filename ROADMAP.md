@@ -56,7 +56,7 @@ Do not merge any fork wholesale. Each fork makes assumptions that do not match t
 
 Extract reviewer-specific behavior from `stop-hook.sh` into a small dispatch layer.
 
-- [x] Support `codex` and `cursor` reviewers.
+- [x] Support `codex`, `gemini`, and `cursor` reviewers (Gemini support removed in 2.0.0 after Google EOL'd the CLI).
 - [x] Resolve the reviewer in this order: `REVIEW_LOOP_REVIEWER`, project config, user config, default.
 - [x] Add reviewer-specific availability checks and flags.
 - [x] Add the Cursor headless invocation.
