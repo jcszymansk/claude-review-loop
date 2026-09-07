@@ -11,6 +11,7 @@ HOME_DIR="$TMP_DIR/home"
 PROMPT_FILE="$TMP_DIR/prompt.md"
 ARGS_FILE="$TMP_DIR/args"
 STDIN_FILE="$TMP_DIR/stdin"
+ENV_FILE="$TMP_DIR/env"
 EXPECTED_ARGS="$TMP_DIR/expected-args"
 REVIEW_FILE="$TMP_DIR/review-1.md"
 ERROR_FILE="$TMP_DIR/error"
@@ -23,11 +24,12 @@ trap cleanup EXIT
 
 mkdir -p "$BIN_DIR" "$PROJECT_DIR" "$HOME_DIR"
 export PATH="$BIN_DIR:$PATH"
-export FAKE_ARGS_FILE="$ARGS_FILE" FAKE_STDIN_FILE="$STDIN_FILE"
+export FAKE_ARGS_FILE="$ARGS_FILE" FAKE_STDIN_FILE="$STDIN_FILE" FAKE_ENV_FILE="$ENV_FILE"
 
 # Never inherit reviewer or flag settings from the calling environment: the
 # default-argv assertions below must pass on any developer or CI machine.
 unset REVIEW_LOOP_REVIEWER REVIEW_LOOP_CODEX_FLAGS REVIEW_LOOP_CURSOR_FLAGS
+unset REVIEW_LOOP_CLAUDE_FLAGS
 unset REVIEW_LOOP_DEBUG REVIEW_LOOP_DEBUG_FILE
 
 cat > "$BIN_DIR/fake-reviewer" <<'FAKE_EOF'
@@ -36,6 +38,10 @@ printf '%s\n' "$(basename "$0")" >> "$FAKE_ARGS_FILE"
 for arg in "$@"; do
   printf '<%s>\n' "$arg" >> "$FAKE_ARGS_FILE"
 done
+if [ "$(basename "$0")" = "claude" ]; then
+  printf 'reviewer-process=%s\n' "${REVIEW_LOOP_REVIEWER_PROCESS:-}" > "$FAKE_ENV_FILE"
+  printf 'claudecode=%s\n' "${CLAUDECODE:-}" >> "$FAKE_ENV_FILE"
+fi
 if [ -n "${FAKE_CAPTURE_STDIN:-}" ]; then
   cat > "$FAKE_STDIN_FILE"
 fi
@@ -54,6 +60,7 @@ FAKE_EOF
 chmod +x "$BIN_DIR/fake-reviewer"
 ln -s fake-reviewer "$BIN_DIR/codex"
 ln -s fake-reviewer "$BIN_DIR/cursor-agent"
+ln -s fake-reviewer "$BIN_DIR/claude"
 
 printf 'Review this diff.\nLine two.\n' > "$PROMPT_FILE"
 
@@ -109,6 +116,19 @@ unset FAKE_CAPTURE_STDIN
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
 cmp "$PROMPT_FILE" "$STDIN_FILE"
+export CLAUDECODE=parent-marker
+"$RUNNER" claude "$PROMPT_FILE"
+unset CLAUDECODE
+{
+  printf 'claude\n'
+  printf '<-p>\n'
+  printf '<--permission-mode>\n'
+  printf '<acceptEdits>\n'
+  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
+} > "$EXPECTED_ARGS"
+assert_args "$EXPECTED_ARGS"
+grep -Fxq 'reviewer-process=1' "$ENV_FILE"
+grep -Fxq 'claudecode=' "$ENV_FILE"
 
 unset FAKE_MODE
 
@@ -135,6 +155,16 @@ unset REVIEW_LOOP_CURSOR_FLAGS
   printf 'cursor-agent\n'
   printf '<-p>\n'
   printf '<--print-timing>\n'
+} > "$EXPECTED_ARGS"
+assert_args "$EXPECTED_ARGS"
+export REVIEW_LOOP_CLAUDE_FLAGS='--verbose'
+"$RUNNER" claude "$PROMPT_FILE"
+unset REVIEW_LOOP_CLAUDE_FLAGS
+{
+  printf 'claude\n'
+  printf '<-p>\n'
+  printf '<--verbose>\n'
+  printf '<%s>\n' "$(cat "$PROMPT_FILE")"
 } > "$EXPECTED_ARGS"
 assert_args "$EXPECTED_ARGS"
 
@@ -200,6 +230,17 @@ export FAKE_MODE=pass
 unset FAKE_MODE
 [ "$(head -n 1 "$REVIEW_FILE")" = "VERDICT: PASS" ]
 rm -f "$REVIEW_FILE"
+export FAKE_MODE=pass
+"$RUNNER" claude "$PROMPT_FILE" "$REVIEW_FILE"
+unset FAKE_MODE
+[ "$(head -n 1 "$REVIEW_FILE")" = "VERDICT: PASS" ]
+rm -f "$REVIEW_FILE"
+
+export FAKE_MODE=no-verdict
+"$RUNNER" claude "$PROMPT_FILE" "$REVIEW_FILE"
+unset FAKE_MODE
+[ "$(cat "$REVIEW_FILE")" = 'review text without a verdict' ]
+rm -f "$REVIEW_FILE"
 
 # Output without a verdict is still captured for inspection; the verdict
 # gate runs downstream in the hook.
@@ -235,6 +276,15 @@ rm -f "$REVIEW_FILE"
 export FAKE_MODE=crash
 set +e
 "$RUNNER" codex "$PROMPT_FILE" "$REVIEW_FILE" >/dev/null 2>&1
+status=$?
+set -e
+unset FAKE_MODE
+[ "$status" -eq 3 ]
+[ ! -e "$REVIEW_FILE" ]
+[ ! -e "$REVIEW_FILE.reviewer-error.1" ]
+export FAKE_MODE=crash
+set +e
+"$RUNNER" claude "$PROMPT_FILE" "$REVIEW_FILE" >/dev/null 2>&1
 status=$?
 set -e
 unset FAKE_MODE

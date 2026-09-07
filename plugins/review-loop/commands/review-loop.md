@@ -1,5 +1,5 @@
 ---
-description: "Start a review loop: implement task, get an independent reviewer review, address feedback"
+description: "Start a review loop: implement task, get a configured reviewer review, address feedback"
 argument-hint: "<task description>"
 allowed-tools:
   - Bash
@@ -14,6 +14,9 @@ First, set up the review loop by running this setup command:
 
 Set `REVIEW_LOOP_PR` or start the command with `--pr <url>` to scope the
 review to a GitHub or Gitea pull request.
+When `reviewer = "claude"` is selected, the reviewer uses the same Claude
+vendor as the implementer. Authenticate with `claude auth login`; this mode
+is opt-in because it provides less independent review than Codex or Cursor.
 
 ```bash
 #!/usr/bin/env bash
@@ -46,6 +49,11 @@ case "$REVIEWER" in
     REVIEWER_CLI="cursor-agent"
     REVIEWER_NAME="Cursor Agent"
     REVIEWER_INSTALL="curl https://cursor.com/install -fsS | bash"
+    ;;
+  claude)
+    REVIEWER_CLI="claude"
+    REVIEWER_NAME="Claude Code"
+    REVIEWER_INSTALL="https://code.claude.com/docs/en/setup"
     ;;
 esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"

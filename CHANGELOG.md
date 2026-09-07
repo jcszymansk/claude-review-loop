@@ -2,6 +2,12 @@
 
 All notable changes to the review-loop plugin are recorded here.
 
+## [Unreleased]
+
+### Added
+
+- Opt-in Claude Code reviewer support through `reviewer = "claude"` and `REVIEW_LOOP_REVIEWER=claude`, using authenticated `claude -p` output without `--bare`.
+
 ## [2.0.0] - 2026-09-07
 
 ### Removed

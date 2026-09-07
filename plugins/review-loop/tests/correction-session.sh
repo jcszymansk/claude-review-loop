@@ -256,6 +256,21 @@ if [ ! -f "$STATE_FILE" ]; then
   printf 'FAIL: correction-session guard removed active state\n' >&2
   exit 1
 fi
+
+reviewer_guard_output=$(
+  cd "$PROJECT_DIR"
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$BIN_DIR:$PATH" \
+    REVIEW_LOOP_REVIEWER_PROCESS=1 \
+    CLAUDECODE=parent-marker \
+    "$HOOK" <<< '{}'
+)
+jq -e '.decision == "approve"' <<< "$reviewer_guard_output" >/dev/null
+if [ ! -f "$STATE_FILE" ]; then
+  printf 'FAIL: Claude reviewer recursion guard removed active state\n' >&2
+  exit 1
+fi
 for section in "## Fixes" "## Skipped findings" "## Quality gates"; do
   if ! grep -Fxq "$section" "$SUMMARY_FILE"; then
     printf 'FAIL: correction session did not write %s\n' "$section" >&2

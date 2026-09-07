@@ -30,6 +30,10 @@ resolve_with_environment() (
   cd "$PROJECT_DIR"
   env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=codex "$RESOLVER"
 )
+resolve_with_claude_environment() (
+  cd "$PROJECT_DIR"
+  env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=claude "$RESOLVER"
+)
 resolve_with_invalid_environment() (
   cd "$PROJECT_DIR"
   env -i PATH="$PATH" HOME="$HOME_DIR" REVIEW_LOOP_REVIEWER=unknown "$RESOLVER"
@@ -70,15 +74,19 @@ assert_failure() {
 
 assert_output "default reviewer" codex resolve_without_xdg
 
+printf 'reviewer = "claude"\n' > "$HOME_DIR/.config/review-loop/config.toml"
+assert_output "claude user reviewer" claude resolve_without_xdg
+
 printf 'reviewer = "gemini"\n' > "$HOME_DIR/.config/review-loop/config.toml"
 assert_failure "removed user reviewer" "unsupported reviewer 'gemini'" resolve_without_xdg
 
 printf 'reviewer = "cursor"\n' > "$XDG_DIR/review-loop/config.toml"
 assert_output "xdg config reviewer" cursor resolve_with_xdg
 
-printf 'reviewer = "cursor"\n' > "$PROJECT_DIR/.review-loop.toml"
-assert_output "project config precedence" cursor resolve_with_xdg
+printf 'reviewer = "claude"\n' > "$PROJECT_DIR/.review-loop.toml"
+assert_output "claude project config precedence" claude resolve_with_xdg
 assert_output "environment precedence" codex resolve_with_environment
+assert_output "claude environment reviewer" claude resolve_with_claude_environment
 
 printf 'reviewer = "unknown"\n' > "$PROJECT_DIR/.review-loop.toml"
 assert_failure "unsupported project reviewer" "unsupported reviewer 'unknown'" resolve_with_xdg

@@ -7,5 +7,5 @@
   },
   "repository": "https://github.com/jcszymansk/claude-review-loop",
   "license": "MIT",
-  "keywords": ["code-review", "codex", "cursor", "quality", "automation"]
+  "keywords": ["code-review", "codex", "cursor", "claude", "quality", "automation"]
 }

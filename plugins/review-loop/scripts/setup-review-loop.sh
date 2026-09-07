@@ -23,16 +23,16 @@ Usage: /review-loop [--pr <url>] <task description>
 
 Starts a review loop:
   1. Claude implements your task
-  2. A configured reviewer performs an independent code review
+  2. A configured reviewer performs a code review
   3. Claude addresses the feedback
 
 Environment variables:
-  REVIEW_LOOP_REVIEWER  Reviewer to run: codex or cursor
+  REVIEW_LOOP_REVIEWER  Reviewer to run: codex, cursor, or claude
   REVIEW_LOOP_MAX_ROUNDS  Maximum review rounds, from 1 to 10 (default: 3)
   REVIEW_LOOP_PR  Optional GitHub or Gitea pull request URL to review
   REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
   REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text)
-
+  REVIEW_LOOP_CLAUDE_FLAGS  Override Claude flags (default: --permission-mode acceptEdits)
 Configuration files:
   .review-loop.toml  Project reviewer configuration
   ~/.config/review-loop/config.toml  User reviewer configuration
@@ -85,6 +85,10 @@ case "$REVIEWER" in
   cursor)
     REVIEWER_CLI="cursor-agent"
     REVIEWER_INSTALL="Install Cursor Agent CLI: curl https://cursor.com/install -fsS | bash"
+    ;;
+  claude)
+    REVIEWER_CLI="claude"
+    REVIEWER_INSTALL="Install Claude Code CLI: https://code.claude.com/docs/en/setup"
     ;;
 esac
 if ! command -v "$REVIEWER_CLI" &> /dev/null; then

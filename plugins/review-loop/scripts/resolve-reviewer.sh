@@ -10,7 +10,7 @@ read_config_reviewer() {
 
   reviewer=$(sed -nE 's/^[[:space:]]*reviewer[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*(#.*)?$/\1/p' "$config_file" | head -n 1)
   if [ -z "$reviewer" ]; then
-    echo "Error: $config_file must define reviewer = \"codex|cursor\"." >&2
+    echo "Error: $config_file must define reviewer = \"codex|cursor|claude\"." >&2
     return 1
   fi
   printf '%s\n' "$reviewer"
@@ -30,6 +30,6 @@ resolve_reviewer() {
 
 REVIEWER="$(resolve_reviewer)"
 case "$REVIEWER" in
-  codex|cursor) printf '%s\n' "$REVIEWER" ;;
-  *) echo "Error: unsupported reviewer '$REVIEWER' (use codex or cursor)" >&2; exit 1 ;;
+  codex|cursor|claude) printf '%s\n' "$REVIEWER" ;;
+  *) echo "Error: unsupported reviewer '$REVIEWER' (use codex, cursor, or claude)" >&2; exit 1 ;;
 esac

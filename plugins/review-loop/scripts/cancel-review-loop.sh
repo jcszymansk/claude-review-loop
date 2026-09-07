@@ -9,8 +9,10 @@ runtime_files=(
   ".claude/review-loop.lock"
   ".claude/review-loop-run-codex.sh"
   ".claude/review-loop-run-cursor.sh"
+  ".claude/review-loop-run-claude.sh"
   ".claude/review-loop-codex-prompt.txt"
   ".claude/review-loop-cursor-prompt.txt"
+  ".claude/review-loop-claude-prompt.txt"
   ".claude/review-loop-retries"
   "$PID_FILE"
 )

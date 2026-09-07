@@ -11,7 +11,11 @@ When you use `/review-loop`, the plugin creates a bounded review lifecycle:
 
 
 
-The result: every task gets an independent second opinion before you accept the changes, and you can watch the review happen in real time.
+A Claude reviewer is available as an opt-in same-vendor fallback. It uses
+Claude Code's authenticated `claude -p` mode, so it provides less independent
+review than Codex or Cursor.
+Each task receives a reviewer opinion before exit, and you can watch the review
+run in real time.
 
 <img width="2284" height="1959" alt="memelord_meme_2026-02-22 (3)" src="https://github.com/user-attachments/assets/75af1351-47e6-4b70-a50a-9b3311773be7" />
 
@@ -35,8 +39,8 @@ warning and the hook falls back to the local branch diff.
 
 ## Requirements
 
-- One reviewer CLI: [Codex](https://github.com/openai/codex) or [Cursor Agent](https://docs.cursor.com/en/cli)
-- The Claude Code CLI (`claude`) — required for the fresh correction session that starts when a review returns `FAIL`
+- One reviewer CLI: [Codex](https://github.com/openai/codex), [Cursor Agent](https://docs.cursor.com/en/cli), or Claude Code
+- Claude Code authentication — required for the correction session and for `reviewer = "claude"`; run `claude auth login` when using subscription OAuth
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
 - `curl` — required only for GitHub or Gitea pull request scoping
 
@@ -142,7 +146,7 @@ claude-review-loop/
     │   ├── capture-worktree-tree.sh # Capture the task-start worktree tree
     │   ├── resolve-reviewer.sh    # Reviewer selection and config precedence
     │   ├── resolve-max-rounds.sh  # Round-limit selection and validation
-    │   ├── run-reviewer.sh        # Codex and Cursor dispatch
+    │   ├── run-reviewer.sh        # Codex, Cursor, and Claude dispatch
     │   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
     │   ├── cancel-review-loop.sh  # Stop active loop child processes
     │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
@@ -190,7 +194,12 @@ reviewer = "cursor"
 max_rounds = 5
 ```
 
-Supported reviewers are `codex` and `cursor`. `max_rounds` must be an integer
+Supported reviewers are `codex`, `cursor`, and opt-in `claude`. Claude
+reviewer runs use `claude -p` without `--bare`, preserving access to Claude
+Code OAuth credentials. Because the implementer and reviewer are both Claude
+Code, this mode has reduced vendor independence.
+
+`max_rounds` must be an integer
 from 1 to 10. Malformed reviewer configuration or an invalid round limit
 causes setup to fail instead of silently falling back to another source.
 
@@ -198,13 +207,14 @@ causes setup to fail instead of silently falling back to another source.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. |
+| `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. Supported values: `codex`, `cursor`, `claude`. |
 | `REVIEW_LOOP_MAX_ROUNDS` | `3` | Maximum review rounds, from 1 to 10. Overrides project and user configuration. |
 | `REVIEW_LOOP_PR` | unset | Optional GitHub or Gitea pull request URL; scopes the review diff to that pull request. |
 | `GITHUB_TOKEN` | unset | Optional token used to fetch private GitHub pull request diffs. |
 | `GITEA_TOKEN` | unset | Optional token used to fetch private Gitea pull request diffs. |
 | `REVIEW_LOOP_CODEX_FLAGS` | `--dangerously-bypass-approvals-and-sandbox` | Flags passed to `codex`. Set to `--sandbox workspace-write` for safer sandboxed reviews. |
 | `REVIEW_LOOP_CURSOR_FLAGS` | `--output-format text` | Override the flags passed to `cursor-agent` after its non-interactive prompt. |
+| `REVIEW_LOOP_CLAUDE_FLAGS` | `--permission-mode acceptEdits` | Override flags passed to `claude -p`; do not add `--bare` if subscription OAuth is required. |
 | `REVIEW_LOOP_DEBUG` | unset | Set to `1` to append reviewer metadata and raw provider stdout/stderr to `.claude/review-loop-debug.log`. |
 
 ### Telemetry

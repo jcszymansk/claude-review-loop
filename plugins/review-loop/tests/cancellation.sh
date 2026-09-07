@@ -40,7 +40,11 @@ chmod +x "$BIN_DIR/codex"
 
 cat > "$BIN_DIR/claude" <<'CLAUDE_EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$$" > "$FAKE_CLAUDE_PID_FILE"
+if [ "${1:-}" = "-p" ]; then
+  printf '%s\n' "$$" > "$FAKE_REVIEWER_PID_FILE"
+else
+  printf '%s\n' "$$" > "$FAKE_CLAUDE_PID_FILE"
+fi
 trap 'exit 143' TERM INT
 while :; do
   sleep 1
@@ -52,7 +56,7 @@ write_state() {
   local project_dir="$1"
   local review_id="$2"
   local phase="${3:-task}"
-
+  local reviewer="${4:-codex}"
   mkdir -p "$project_dir/.claude" "$project_dir/reviews/$review_id"
   printf '# Review Loop Task Context\n\nCancellation test\n' > \
     "$project_dir/reviews/$review_id/summary-0.md"
@@ -60,7 +64,7 @@ write_state() {
 {
   "active": true,
   "phase": "$phase",
-  "reviewer": "codex",
+  "reviewer": "$reviewer",
   "task": "test cancellation",
   "round": 1,
   "max_rounds": 3,
@@ -124,6 +128,32 @@ esac
 [ ! -f "$REVIEW_PROJECT/.claude/review-loop.local.json" ]
 [ ! -f "$REVIEW_PROJECT/.claude/review-loop-child.pid" ]
 [ -f "$REVIEW_PROJECT/reviews/$REVIEW_ID/summary-0.md" ]
+CLAUDE_REVIEW_PROJECT="$TMP_DIR/claude-reviewer-project"
+CLAUDE_REVIEW_ID="20260826-123456-fedcba"
+CLAUDE_REVIEWER_PID_FILE="$TMP_DIR/claude-reviewer.pid"
+write_state "$CLAUDE_REVIEW_PROJECT" "$CLAUDE_REVIEW_ID" task claude
+(
+  cd "$CLAUDE_REVIEW_PROJECT"
+  env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" \
+    FAKE_REVIEWER_PID_FILE="$CLAUDE_REVIEWER_PID_FILE" \
+    "$HOOK" <<< '{}' > "$TMP_DIR/claude-reviewer-hook-output"
+) &
+HOOK_PID=$!
+wait_for_file "$CLAUDE_REVIEWER_PID_FILE"
+cancel_output=$(cd "$CLAUDE_REVIEW_PROJECT" && "$CANCEL")
+wait "$HOOK_PID" || true
+unset HOOK_PID
+assert_stopped "$CLAUDE_REVIEWER_PID_FILE"
+case "$cancel_output" in
+  *"phase: task"*"review ID: $CLAUDE_REVIEW_ID"*) ;;
+  *)
+    printf 'FAIL: Claude reviewer cancellation reported the wrong loop: %s\n' "$cancel_output" >&2
+    exit 1
+    ;;
+esac
+[ ! -f "$CLAUDE_REVIEW_PROJECT/.claude/review-loop.local.json" ]
+[ ! -f "$CLAUDE_REVIEW_PROJECT/.claude/review-loop-child.pid" ]
+[ -f "$CLAUDE_REVIEW_PROJECT/reviews/$CLAUDE_REVIEW_ID/summary-0.md" ]
 
 CORRECTION_PROJECT="$TMP_DIR/correction-project"
 CORRECTION_ID="20260826-123456-fedcba"

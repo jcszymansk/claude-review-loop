@@ -124,6 +124,7 @@ assert_missing_cli() {
 
 assert_missing_cli codex codex Codex 'npm install -g @openai/codex'
 assert_missing_cli cursor cursor-agent 'Cursor Agent' 'curl https://cursor.com/install -fsS | bash'
+assert_missing_cli claude claude 'Claude Code' 'https://code.claude.com/docs/en/setup'
 mkdir -p "$HOME_DIR/.codex"
 printf '[features]\nmulti_agent = true\n' > "$HOME_DIR/.codex/config.toml"
 cat > "$BIN_DIR/codex" <<'CODEX_EOF'

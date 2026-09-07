@@ -10,7 +10,8 @@
 #   REVIEW_LOOP_REVIEWER, .review-loop.toml, and
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml (default: codex)
 # REVIEW_LOOP_CODEX_FLAGS    Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
-# REVIEW_LOOP_CURSOR_FLAGS    Override Cursor Agent flags (default: --output-format text)
+# REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text)
+# REVIEW_LOOP_CLAUDE_FLAGS   Override Claude flags (default: --permission-mode acceptEdits)
 
 LOG_FILE=".claude/review-loop.log"
 log() {
@@ -23,8 +24,10 @@ cleanup_generated_files() {
   rm -f \
     .claude/review-loop-run-codex.sh \
     .claude/review-loop-run-cursor.sh \
+    .claude/review-loop-run-claude.sh \
     .claude/review-loop-codex-prompt.txt \
     .claude/review-loop-cursor-prompt.txt \
+    .claude/review-loop-claude-prompt.txt \
     .claude/review-loop-retries \
     .claude/review-loop-child.pid \
     .claude/review-loop-child.pid.tmp.*
@@ -34,8 +37,9 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 
 # Consume stdin (hook input JSON) — must read to avoid broken pipe
 HOOK_INPUT=$(cat)
-if [ "${REVIEW_LOOP_CORRECTION:-}" = "1" ]; then
-  log "Allowing correction session to exit without re-entering the review loop"
+if [ "${REVIEW_LOOP_CORRECTION:-}" = "1" ] ||
+  [ "${REVIEW_LOOP_REVIEWER_PROCESS:-}" = "1" ]; then
+  log "Allowing nested Claude session to exit without re-entering the review loop"
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -240,6 +244,13 @@ case "$REVIEWER" in
     REVIEWER_INSTALL="curl https://cursor.com/install -fsS | bash"
     PROMPT_FILE=".claude/review-loop-cursor-prompt.txt"
     RUNNER_SCRIPT=".claude/review-loop-run-cursor.sh"
+    ;;
+  claude)
+    REVIEWER_CLI="claude"
+    REVIEWER_NAME="Claude Code"
+    REVIEWER_INSTALL="https://code.claude.com/docs/en/setup"
+    PROMPT_FILE=".claude/review-loop-claude-prompt.txt"
+    RUNNER_SCRIPT=".claude/review-loop-run-claude.sh"
     ;;
   *)
     log "ERROR: unsupported reviewer: $REVIEWER"

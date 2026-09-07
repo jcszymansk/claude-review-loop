@@ -9,7 +9,7 @@ DEBUG_ENABLED="${REVIEW_LOOP_DEBUG:-}"
 DEBUG_FILE="${REVIEW_LOOP_DEBUG_FILE:-.claude/review-loop-debug.log}"
 
 if [ -z "$REVIEWER" ] || [ -z "$PROMPT_FILE" ] || [ ! -f "$PROMPT_FILE" ]; then
-  echo "Usage: run-reviewer.sh <codex|cursor> <prompt-file> [review-file]" >&2
+  echo "Usage: run-reviewer.sh <codex|cursor|claude> <prompt-file> [review-file]" >&2
   exit 2
 fi
 
@@ -35,6 +35,12 @@ run_reviewer() {
       debug_log "invoke=cursor-agent prompt_mode=stdin cli_path=$(command -v cursor-agent 2>/dev/null || printf 'unavailable')"
       # shellcheck disable=SC2086
       cursor-agent -p ${CURSOR_FLAGS} < "$PROMPT_FILE"
+      ;;
+    claude)
+      CLAUDE_FLAGS="${REVIEW_LOOP_CLAUDE_FLAGS:---permission-mode acceptEdits}"
+      debug_log "invoke=claude prompt_mode=argument cli_path=$(command -v claude 2>/dev/null || printf 'unavailable')"
+      # shellcheck disable=SC2086
+      env -u CLAUDECODE REVIEW_LOOP_REVIEWER_PROCESS=1 claude -p ${CLAUDE_FLAGS} "$(cat "$PROMPT_FILE")"
       ;;
     *)
       echo "Unsupported reviewer: $REVIEWER" >&2
