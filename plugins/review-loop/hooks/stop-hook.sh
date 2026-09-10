@@ -37,9 +37,8 @@ trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_fi
 
 # Consume stdin (hook input JSON) — must read to avoid broken pipe
 HOOK_INPUT=$(cat)
-if [ "${REVIEW_LOOP_CORRECTION:-}" = "1" ] ||
-  [ "${REVIEW_LOOP_REVIEWER_PROCESS:-}" = "1" ]; then
-  log "Allowing nested Claude session to exit without re-entering the review loop"
+if [ "${REVIEW_LOOP_REVIEWER_PROCESS:-}" = "1" ]; then
+  log "Allowing Claude reviewer process to exit without re-entering the review loop"
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -566,10 +565,8 @@ render_prompt_template() {
   replace_prompt_placeholder "__REVIEWER__" "$REVIEWER"
   replace_prompt_placeholder "__ROUND__" "$ROUND"
   replace_prompt_placeholder "__REVIEW_STATUS__" "$REVIEW_STATUS"
-  replace_prompt_placeholder "__CORRECTION_STATUS__" "$CORRECTION_STATUS"
   replace_prompt_placeholder "__RUNNER_SCRIPT__" "$RUNNER_SCRIPT"
   replace_prompt_placeholder "__REVIEW_FILE__" "$REVIEW_FILE"
-  replace_prompt_placeholder "__REVIEW_ID__" "$REVIEW_ID"
   replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
   replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
   replace_prompt_placeholder "__TASK__" "$TASK"
@@ -657,53 +654,6 @@ transition_to_next_round() {
   rm -f .claude/review-loop-retries
   log "Advanced to review round: $next_round"
   return 0
-}
-# ── Start a fresh interactive correction session ───────────────────────────
-start_correction_session() {
-  local correction_prompt
-  local correction_status
-  local correction_pid
-  local tty_name
-  local tty_device
-
-  if ! correction_prompt=$(render_prompt_template "$PROMPTS_DIR/correction-session.md"); then
-    log "ERROR: failed to render correction prompt"
-    return 1
-  fi
-
-  tty_name=$(ps -o tty= -p "$$" 2>/dev/null)
-  tty_name="${tty_name//[[:space:]]/}"
-  tty_device=""
-  case "$tty_name" in
-    console|pts/*|tty[sy]*)
-      tty_device="/dev/$tty_name"
-      ;;
-  esac
-
-  log "Starting fresh interactive Claude correction session (review_id=$REVIEW_ID, round=$ROUND)"
-  if [ -n "$tty_device" ] && [ -r "$tty_device" ] && [ -w "$tty_device" ]; then
-    # shellcheck disable=SC2094 # same tty intentionally provides stdin and stdout
-    env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT REVIEW_LOOP_CORRECTION=1 claude --dangerously-skip-permissions "$correction_prompt" <"$tty_device" >"$tty_device" 2>&1 &
-    correction_pid=$!
-    write_child_pid "$correction_pid"
-    if wait "$correction_pid"; then
-      correction_status=0
-    else
-      correction_status=$?
-    fi
-    clear_child_pid "$correction_pid"
-  else
-
-
-    log "ERROR: fresh interactive Claude correction session unavailable: Stop hook has no terminal"
-    correction_status=1
-  fi
-  if [ "$correction_status" -eq 0 ]; then
-    log "Fresh interactive Claude correction session finished (review_id=$REVIEW_ID, round=$ROUND)"
-  else
-    log "ERROR: fresh interactive Claude correction session failed (review_id=$REVIEW_ID, round=$ROUND, exit=$correction_status)"
-  fi
-  return "$correction_status"
 }
 
 case "$PHASE" in
@@ -866,7 +816,6 @@ RUNNER_EOF
       exit 0
     fi
 
-    CORRECTION_STATUS=""
     log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
     if review_artifact_is_usable "$REVIEW_FILE"; then
       log "Review artifact ready (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
@@ -875,41 +824,18 @@ RUNNER_EOF
       else
         REVIEW_STATUS="exited with status ${REVIEWER_EXIT}; rerun it if the review artifact is malformed"
       fi
-
-      if VERDICT=$(parse_verdict "$REVIEW_FILE") && [ "$VERDICT" = "FAIL" ]; then
-        CORRECTION_STATUS="not started because the Claude CLI is unavailable"
-        if command -v claude >/dev/null 2>&1; then
-          if start_correction_session; then
-            CORRECTION_STATUS="completed"
-          else
-            CORRECTION_STATUS="failed"
-          fi
-        else
-          log "ERROR: claude not found on PATH; keeping FAIL in the current session"
-        fi
-      fi
     else
       log "ERROR: ${REVIEWER} did not produce a usable review artifact (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
       REVIEW_STATUS="did not produce a usable artifact; rerun it with the generated script"
     fi
 
-    if [ -n "$CORRECTION_STATUS" ]; then
-      if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-correction.md"); then
-        log "ERROR: failed to render correction handoff prompt"
-        cleanup_runtime_files
-        printf '{"decision":"approve"}\n'
-        exit 0
-      fi
-    else
-      if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-review.md"); then
-        log "ERROR: failed to render review handoff prompt"
-        cleanup_runtime_files
-        printf '{"decision":"approve"}\n'
-        exit 0
-      fi
+    if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-review.md"); then
+      log "ERROR: failed to render review handoff prompt"
+      cleanup_runtime_files
+      printf '{"decision":"approve"}\n'
+      exit 0
     fi
     SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback or continue to the next round"
-
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
       || printf '{"decision":"block","reason":"Phase 1 complete. Read the review and address the findings.","systemMessage":"%s"}\n' "$SYS_MSG"

@@ -8,6 +8,10 @@ All notable changes to the review-loop plugin are recorded here.
 
 - Opt-in Claude Code reviewer support through `reviewer = "claude"` and `REVIEW_LOOP_REVIEWER=claude`, using authenticated `claude -p` output without `--bare`.
 
+### Changed
+
+- Failed reviews now return findings to the main Claude session instead of starting a nested correction session.
+
 ## [2.0.0] - 2026-09-07
 
 ### Removed

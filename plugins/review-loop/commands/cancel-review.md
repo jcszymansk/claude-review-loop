@@ -19,8 +19,8 @@ Then run the cancellation helper:
 "${CLAUDE_PLUGIN_ROOT}/scripts/cancel-review-loop.sh"
 ```
 
-The helper stops the active reviewer or correction-session process and its
-children, then removes the runtime state and generated reviewer files.
+The helper stops the active reviewer process and its children, then removes the
+runtime state and generated reviewer files.
 Leave `reviews/<review_id>/` untouched. It contains the review history and
 must remain available after cancellation.
 

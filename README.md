@@ -7,7 +7,7 @@ A Claude Code plugin that adds an automated code review loop to your workflow.
 When you use `/review-loop`, the plugin creates a bounded review lifecycle:
 
 1. **Task phase**: you describe a task, setup initializes `summary-0.md` with task context, and Claude replaces it with the implementation summary
-2. **Review phase**: the Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it starts a fresh interactive Claude correction session, then reruns the reviewer for the next round after the correction summary is complete. The loop stops on `VERDICT: PASS` or the maximum round count. A missing or malformed verdict keeps the loop from being accepted. `/cancel-review` stops active reviewer or correction-session processes and preserves the review history.
+2. **Review phase**: the Stop hook runs the configured reviewer. On `VERDICT: FAIL`, it returns the findings to the same Claude session, which verifies and addresses them before writing the correction summary; the next stop reruns the reviewer. The loop stops on `VERDICT: PASS` or the maximum round count. A missing or malformed verdict keeps the loop from being accepted. `/cancel-review` stops active reviewer processes and preserves the review history.
 
 
 
@@ -40,7 +40,7 @@ warning and the hook falls back to the local branch diff.
 ## Requirements
 
 - One reviewer CLI: [Codex](https://github.com/openai/codex), [Cursor Agent](https://docs.cursor.com/en/cli), or Claude Code
-- Claude Code authentication — required for the correction session and for `reviewer = "claude"`; run `claude auth login` when using subscription OAuth
+- Claude Code authentication — required only for `reviewer = "claude"`; run `claude auth login` when using subscription OAuth
 - `jq` — `brew install jq` (macOS) / `apt install jq` (Linux)
 - `curl` — required only for GitHub or Gitea pull request scoping
 
@@ -93,7 +93,7 @@ claude plugin update review-loop@hamel-review
 Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` with task context; before the first stop, Claude replaces it with an implementation summary. The stop hook then:
 1. Prepares the selected reviewer runner and prompt file
 2. Runs the reviewer for the current round, recording its output in `.claude/review-loop.log`
-3. If the verdict is `VERDICT: FAIL`, starts a fresh interactive Claude correction session
+3. If the verdict is `VERDICT: FAIL`, returns the findings to the same Claude session for verification and correction
 4. After the correction summary is complete, reruns the reviewer for the next round
 5. Keeps each numbered review and correction summary in `reviews/<id>/`
 6. Stops on `VERDICT: PASS`, or reports `MAX_ROUNDS_REACHED` when repeated failures exhaust the configured limit. A missing or malformed verdict keeps the loop blocked for correction.
@@ -105,19 +105,19 @@ Claude will implement the task. Setup initializes `reviews/<id>/summary-0.md` wi
 /cancel-review
 ```
 
-Cancellation stops the active reviewer or correction-session process and its
-children. The `reviews/<id>/` history remains on disk.
+Cancellation stops the active reviewer process and its children. The
+`reviews/<id>/` history remains on disk.
 
 ## How it works
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
 1. The hook reads the JSON state file (`.claude/review-loop.local.json`)
 2. If in `task` phase: renders the review prompt, writes a numbered reviewer runner script, runs the configured reviewer for the current round, and transitions to `addressing`
-3. If the review verdict is `FAIL`, the hook starts one fresh interactive Claude correction session with the review context
-4. After the correction summary is complete, the hook advances the round and reruns the reviewer automatically
+3. If the review verdict is `FAIL`, the hook returns the findings to the same Claude session
+4. After that session writes the correction summary, the hook advances the round and reruns the reviewer automatically
 5. A `PASS` allows exit after its correction summary is complete; repeated failures end with `MAX_ROUNDS_REACHED` and preserve the review history
 
-The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and correction sessions run with `REVIEW_LOOP_CORRECTION=1` so they cannot recursively start another review.
+The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and Claude reviewer processes run with `REVIEW_LOOP_REVIEWER_PROCESS=1` so they cannot recursively start another review.
 
 State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, `started_at`, and the task-start baseline tree, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid` and `review-loop-retries` used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
 
@@ -156,8 +156,6 @@ claude-review-loop/
     │   ├── review-nextjs.md            # Conditional Next.js review instructions
     │   ├── review-ux.md                # Conditional browser UX review instructions
     │   ├── review-consolidation.md     # Finding consolidation instructions
-    │   ├── correction-session.md       # Claude correction-session instructions
-    │   ├── addressing-correction.md    # Correction handoff message
     │   ├── addressing-review.md        # Review handoff message
     │   ├── addressing-summary.md       # Incomplete summary message
     │   ├── addressing-verdict.md       # Malformed verdict message

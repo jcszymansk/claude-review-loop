@@ -47,7 +47,7 @@ The final correction is not reviewed again. Runtime state and generated files cu
 ## Fork work worth reusing
 
 - [Smiie-2](https://github.com/Smiie-2/claude-review-loop): reviewer dispatch, external prompt templates, JSON state, on-demand reviews, and shell tests.
-- [BUZDOLAPCI](https://github.com/BUZDOLAPCI/claude-review-loop): per-round review history, explicit `PASS`/`FAIL` verdicts, fresh Claude correction sessions, and the orchestrator loop.
+- [BUZDOLAPCI](https://github.com/BUZDOLAPCI/claude-review-loop): per-round review history, explicit `PASS`/`FAIL` verdicts, and the orchestrator loop.
 - [YukiCoco](https://github.com/YukiCoco/claude-review-loop): project-root discovery, worktree-safe paths, optional PR scope, and spec-compliance review guidance.
 
 Do not merge any fork wholesale. Each fork makes assumptions that do not match this project exactly.
@@ -101,15 +101,15 @@ Add the review, correction, and re-review loop.
 - [x] Verify that the reviewer produced a usable artifact.
 - [x] Parse the verdict.
 - [x] Stop immediately on `PASS`.
-- [x] On `FAIL`, start a fresh Claude correction session.
+- [x] On `FAIL`, return findings to the main Claude session for verification and correction.
 - [x] Ask Claude to read the full round history before changing code.
 - [x] Require Claude to record fixes, skipped findings, and quality-gate results.
 - [x] Continue until `PASS` or the configured maximum round count.
 - [x] Make the round limit configurable, with a bounded default.
-- [x] Support cancellation that stops child processes without deleting review history.
-- [x] Prevent correction-session Stop hooks from recursively starting another orchestrator.
+- [x] Support cancellation that stops reviewer child processes without deleting review history.
+- [x] Keep reviewer-process Stop hooks from recursively starting another orchestrator.
 
-The initial implementation should remain interactive. Fresh headless Claude sessions should handle only later correction rounds.
+The main interactive Claude session remains responsible for corrections. The Stop hook handles reviewer execution and round transitions.
 
 ## Phase 4: Review scope and prompt quality
 

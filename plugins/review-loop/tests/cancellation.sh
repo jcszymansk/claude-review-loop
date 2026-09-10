@@ -10,13 +10,12 @@ HOME_DIR="$TMP_DIR/home"
 
 cleanup() {
   set +e
-  for pid in "${HOOK_PID:-}" "${PTY_PID:-}"; do
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-      sleep 0.1
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
-  done
+  local pid="${HOOK_PID:-}"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill -TERM "$pid" 2>/dev/null || true
+    sleep 0.1
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -40,11 +39,11 @@ chmod +x "$BIN_DIR/codex"
 
 cat > "$BIN_DIR/claude" <<'CLAUDE_EOF'
 #!/usr/bin/env bash
-if [ "${1:-}" = "-p" ]; then
-  printf '%s\n' "$$" > "$FAKE_REVIEWER_PID_FILE"
-else
-  printf '%s\n' "$$" > "$FAKE_CLAUDE_PID_FILE"
+if [ "${1:-}" != "-p" ]; then
+  printf 'FAIL: unexpected Claude invocation\n' >&2
+  exit 1
 fi
+printf '%s\n' "$$" > "$FAKE_REVIEWER_PID_FILE"
 trap 'exit 143' TERM INT
 while :; do
   sleep 1
@@ -155,40 +154,5 @@ esac
 [ ! -f "$CLAUDE_REVIEW_PROJECT/.claude/review-loop-child.pid" ]
 [ -f "$CLAUDE_REVIEW_PROJECT/reviews/$CLAUDE_REVIEW_ID/summary-0.md" ]
 
-CORRECTION_PROJECT="$TMP_DIR/correction-project"
-CORRECTION_ID="20260826-123456-fedcba"
-CORRECTION_REVIEWER_PID_FILE="$TMP_DIR/correction-reviewer.pid"
-CORRECTION_CLAUDE_PID_FILE="$TMP_DIR/correction-claude.pid"
-CORRECTION_PTY="$TMP_DIR/correction-pty.sh"
-CORRECTION_OUTPUT="$TMP_DIR/correction-output"
-write_state "$CORRECTION_PROJECT" "$CORRECTION_ID"
-cat > "$CORRECTION_PTY" <<HOOK_EOF
-#!/usr/bin/env bash
-cd "$CORRECTION_PROJECT"
-exec env HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" \
-  FAKE_REVIEW_MODE=fail \
-  FAKE_REVIEWER_PID_FILE="$CORRECTION_REVIEWER_PID_FILE" \
-  FAKE_CLAUDE_PID_FILE="$CORRECTION_CLAUDE_PID_FILE" \
-  "$HOOK"
-HOOK_EOF
-chmod +x "$CORRECTION_PTY"
-script -qefc "$CORRECTION_PTY" /dev/null <<< '{}' > "$CORRECTION_OUTPUT" 2>&1 &
-PTY_PID=$!
-wait_for_file "$CORRECTION_CLAUDE_PID_FILE"
-cancel_output=$(cd "$CORRECTION_PROJECT" && "$CANCEL")
-wait "$PTY_PID" || true
-unset PTY_PID
-assert_stopped "$CORRECTION_CLAUDE_PID_FILE"
-case "$cancel_output" in
-  *"phase: addressing"*"review ID: $CORRECTION_ID"*) ;;
-  *)
-    printf 'FAIL: correction cancellation reported the wrong loop: %s\n' "$cancel_output" >&2
-    exit 1
-    ;;
-esac
-[ ! -f "$CORRECTION_PROJECT/.claude/review-loop.local.json" ]
-[ ! -f "$CORRECTION_PROJECT/.claude/review-loop-child.pid" ]
-[ -f "$CORRECTION_PROJECT/reviews/$CORRECTION_ID/summary-0.md" ]
-[ -f "$CORRECTION_PROJECT/reviews/$CORRECTION_ID/review-1.md" ]
 
 printf 'cancellation tests passed\n'

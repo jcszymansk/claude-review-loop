@@ -43,11 +43,6 @@ else
 fi
 CODEX_EOF
 chmod +x "$BIN_DIR/codex"
-cat > "$BIN_DIR/claude" <<'CLAUDE_EOF'
-#!/usr/bin/env bash
-exit 0
-CLAUDE_EOF
-chmod +x "$BIN_DIR/claude"
 
 write_state() {
   local run_dir="$1"

@@ -40,8 +40,8 @@ STATE_EOF
 printf '# Review Loop Task Context\n\nverify findings regression test\n' > \
   "$PROJECT_DIR/reviews/$REVIEW_ID/summary-0.md"
 
-# A PASS verdict needs no correction session, so the hook blocks with the
-# addressing-review prompt. Its reason must require per-finding verification.
+# A PASS verdict still uses the main-session addressing handoff. Its reason
+# must require per-finding verification.
 hook_output=$(cd "$PROJECT_DIR" && env \
   HOME="$HOME_DIR" \
   PATH="$BIN_DIR:$PATH" \

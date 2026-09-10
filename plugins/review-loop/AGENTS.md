@@ -5,7 +5,7 @@
 A Claude Code plugin that creates a bounded review loop:
 1. Claude implements a task
 2. The Stop hook runs the configured reviewer
-3. On `FAIL`, the Stop hook starts a fresh interactive Claude correction session
+3. On `FAIL`, the Stop hook returns the findings to the same Claude session
 4. After a complete correction summary, the hook reruns the reviewer for the next round until `PASS` or the round limit
 
 ## Conventions
@@ -19,7 +19,7 @@ A Claude Code plugin that creates a bounded review loop:
 - The selected review prompt is saved to the matching `.claude/review-loop-<reviewer>-prompt.txt` file for the runner script
 - The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict is treated as `FAIL` and blocks exit until the review is fixed or rerun
 - A missing review artifact prompts Claude to rerun the generated runner script once (counted in `.claude/review-loop-retries`); on the second stop without an artifact the hook fails open
-- Fresh correction sessions and Claude reviewer sessions run with their recursion guard (`REVIEW_LOOP_CORRECTION=1` / `REVIEW_LOOP_REVIEWER_PROCESS=1`) and without `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT`, so neither can recursively start another review
+- Claude reviewer processes use `REVIEW_LOOP_REVIEWER_PROCESS=1` so they cannot recursively start another review
 - Telemetry goes to `.claude/review-loop.log` — structured, timestamped lines; `REVIEW_LOOP_DEBUG=1` additionally preserves reviewer invocation metadata and raw provider stdout/stderr in `.claude/review-loop-debug.log`
 - Phase transitions use `transition_phase()` (atomic `jq` rewrite + verify), NOT fragile text parsing
 - All `jq` calls that produce block decisions MUST have a `|| printf '...'` fallback — if jq fails, the ERR trap would silently approve exit and drop the review
@@ -27,7 +27,7 @@ A Claude Code plugin that creates a bounded review loop:
 - The `addressing` phase verifies the current numbered review file and correction summary before allowing exit; a complete `FAIL` round advances automatically to the next review
 - Correction summaries must be non-empty and contain `## Fixes`, `## Skipped findings`, and `## Quality gates`; record each verification command with a `PASS`, `FAIL`, or `NOT RUN` result before a `PASS` verdict can approve exit
 - Every review finding must be actionable: file path and line number (or directory for structural issues), severity (critical/high/medium/low), explanation, and suggested fix; incomplete findings are discarded at consolidation
-- Claude must verify each finding against the codebase before applying a fix, in the original session and in fresh correction sessions alike: open the referenced file and line (or directory) and confirm the issue is still present by reproducing it when applicable or by inspecting the code; findings that cannot be verified, are already fixed, or are rejected are recorded under `Skipped findings` with the reason
+- Claude must verify each finding against the codebase before applying a fix in the main session: open the referenced file and line (or directory) and confirm the issue is still present by reproducing it when applicable or by inspecting the code; findings that cannot be verified, are already fixed, or are rejected are recorded under `Skipped findings` with the reason
 
 ## Security constraints
 
@@ -56,14 +56,14 @@ CI also runs `shellcheck -x plugins/review-loop/hooks/*.sh plugins/review-loop/s
 - `malformed-verdicts.sh` — absent and malformed verdicts, missing artifacts, retry gate, orphaned state
 - `reviewer-errors.sh` — reviewer non-zero exit and timeout never report PASS: each failed attempt is preserved as a numbered `review-<round>.md.reviewer-error.<n>` artifact, the canonical review path stays vacant so the retry gate takes over, and the loop fails open while keeping history
 - `runner-capture.sh` — the runner script captures reviewer output into the current round artifact
-- `cancellation.sh` — `/cancel-review` stops reviewer and correction-session child processes while review history remains
+- `cancellation.sh` — `/cancel-review` stops reviewer child processes while review history remains
 - `nested-worktrees.sh` — nested working directories and git worktrees keep state and artifacts in the session directory
 - `concurrent-isolation.sh` — two loops in one repository (root and nested directory) keep separate state, prompts, runner scripts, logs, and review history; one loop's cleanup never touches the other's files
 - `resolve-reviewer.sh` — reviewer precedence (`REVIEW_LOOP_REVIEWER` → project config → user config → default), including opt-in `claude`
 - `reviewer-availability.sh` — missing CLI blocks with install instructions and leaves no generated runtime files; retry gate and cancellation instructions for all supported reviewers
 - `command-construction.sh` — `run-reviewer.sh` builds the exact per-provider command (flags, prompt as argument for codex/claude vs stdin for cursor), rejects unsupported reviewers with exit 2, exports the Claude recursion guard without `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT`, and captures or quarantines review artifacts by verdict and exit status
 - `legacy-codex.sh` — Codex behavior without reviewer configuration, including legacy state files
-- `correction-session.sh` — fresh interactive correction session launch without `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT`, review/summary prompt paths, and fallback when `claude` is unavailable
+- `main-session-handoff.sh` — a failed review hands off to the main Claude session consistently in PTY and non-PTY hook environments without invoking `claude`
 - `branch-diff.sh` — current branch diff scope, upstream fallback, unborn repositories, and untracked files
 - `task-diff.sh` — task-start tree snapshot excludes pre-existing staged, unstaged, and untracked worktree changes from the authoritative task diff
 - `pr-scope.sh` — GitHub and Gitea pull request diff scoping with local branch fallback and warning

@@ -1,5 +1,5 @@
 {
-  "description": "Review loop stop hook: runs the selected reviewer for the current round, then has Claude address feedback",
+  "description": "Review loop stop hook: runs the selected reviewer, then returns findings to the main Claude session",
   "hooks": {
     "Stop": [
       {
