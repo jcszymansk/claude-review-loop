@@ -17,45 +17,14 @@ runtime_files=(
   "$PID_FILE"
 )
 
-child_pids() {
-  local parent="$1"
-  if command -v pgrep >/dev/null 2>&1; then
-    pgrep -P "$parent" 2>/dev/null || true
-  else
-    ps -e -o pid= -o ppid= 2>/dev/null |
-      awk -v parent="$parent" '$2 == parent {print $1}' || true
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STOP_TREE_SCRIPT="$SCRIPT_DIR/stop-process-tree.sh"
 
 valid_pid() {
   case "$1" in
     ''|*[!0-9]*) return 1 ;;
   esac
   [ "$1" -gt 1 ] 2>/dev/null
-}
-
-terminate_process_tree() {
-  local pid="$1"
-  local child
-
-  while IFS= read -r child; do
-    [ -n "$child" ] || continue
-    terminate_process_tree "$child"
-  done < <(child_pids "$pid")
-
-  kill -TERM "$pid" 2>/dev/null || true
-}
-
-force_terminate_process_tree() {
-  local pid="$1"
-  local child
-
-  while IFS= read -r child; do
-    [ -n "$child" ] || continue
-    force_terminate_process_tree "$child"
-  done < <(child_pids "$pid")
-
-  kill -KILL "$pid" 2>/dev/null || true
 }
 
 state_present=false
@@ -80,11 +49,7 @@ fi
 if [ "$state_present" = true ] && [ -f "$PID_FILE" ]; then
   while IFS= read -r pid; do
     if valid_pid "$pid" && [ "$pid" -ne "$$" ]; then
-      terminate_process_tree "$pid"
-      sleep 0.1
-      if kill -0 "$pid" 2>/dev/null; then
-        force_terminate_process_tree "$pid"
-      fi
+      "$STOP_TREE_SCRIPT" "$pid" 1 >/dev/null || true
     fi
   done < "$PID_FILE"
 fi
