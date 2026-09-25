@@ -7,6 +7,7 @@ PROMPT_FILE="${2:-}"
 REVIEW_FILE="${3:-}"
 DEBUG_ENABLED="${REVIEW_LOOP_DEBUG:-}"
 DEBUG_FILE="${REVIEW_LOOP_DEBUG_FILE:-.claude/review-loop-debug.log}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$REVIEWER" ] || [ -z "$PROMPT_FILE" ] || [ ! -f "$PROMPT_FILE" ]; then
   echo "Usage: run-reviewer.sh <codex|cursor|claude> <prompt-file> [review-file]" >&2
@@ -99,14 +100,8 @@ if [ "$REVIEWER_EXIT" -ne 0 ] && [ -f "$REVIEW_FILE" ]; then
   # the addressing phase treats the round as incomplete and the retry gate
   # takes over. Vacating the path also lets a later rerun capture a fresh
   # artifact.
-  quarantine_index=1
-  quarantine_file="${REVIEW_FILE}.reviewer-error.${quarantine_index}"
-  while [ -e "$quarantine_file" ]; do
-    quarantine_index=$((quarantine_index + 1))
-    quarantine_file="${REVIEW_FILE}.reviewer-error.${quarantine_index}"
-  done
-  debug_log "quarantining review artifact after non-zero exit: $quarantine_file"
-  mv "$REVIEW_FILE" "$quarantine_file"
+  quarantine_file=$("$SCRIPT_DIR/quarantine-review-artifact.sh" "$REVIEW_FILE")
+  debug_log "quarantined review artifact after non-zero exit: $quarantine_file"
 fi
 
 debug_log "reviewer runner exiting (exit=$REVIEWER_EXIT)"
