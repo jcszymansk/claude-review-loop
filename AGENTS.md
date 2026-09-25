@@ -54,7 +54,7 @@ Any other phase cleans up and approves.
 - The runner heredoc in `stop-hook.sh` is unquoted: values are baked in at generation time, and anything meant for runtime must be escaped as `\$`.
 - Adding a reviewer touches the reviewer `case` blocks in `stop-hook.sh`, `commands/review-loop.md`, `setup-review-loop.sh`, `resolve-reviewer.sh`, `run-reviewer.sh`, and the generated-file lists duplicated in `cleanup_generated_files` (hook) and `cancel-review-loop.sh`.
 - The excludes in `capture-worktree-tree.sh` must match those in `compute_task_diff` in `stop-hook.sh`.
-- `REVIEW_LOOP_*_FLAGS` are word-split unquoted in `run-reviewer.sh`, so quoted arguments inside them do not survive.
+- `REVIEW_LOOP_*_FLAGS` are expanded unquoted in `run-reviewer.sh`: they are word-split, so quoted arguments inside them do not survive, and glob-expanded, so a flag value containing `*` or `?` can turn into file names from the reviewer's cwd.
 
 ## Releases
 
