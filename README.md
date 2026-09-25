@@ -117,9 +117,9 @@ The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting age
 4. After that session writes the correction summary, the hook advances the round and reruns the reviewer automatically
 5. A `PASS` allows exit after its correction summary is complete; repeated failures end with `MAX_ROUNDS_REACHED` and preserve the review history
 
-The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and Claude reviewer processes run with `REVIEW_LOOP_REVIEWER_PROCESS=1` so they cannot recursively start another review.
+The verdict is the first line of each review artifact and must be exactly `VERDICT: PASS` or `VERDICT: FAIL`; an absent or malformed verdict counts as `FAIL` and blocks exit until the review is fixed or rerun. A reviewer that exits non-zero or runs past its time limit keeps its output as a `review-<round>.md.reviewer-error.<n>` quarantine file so a failed review can never be accepted. A missing review artifact prompts one rerun of the generated runner script, then the loop fails open rather than trapping you. On any internal error the hook approves exit (fail-open), and Claude reviewer processes run with `REVIEW_LOOP_REVIEWER_PROCESS=1` so they cannot recursively start another review.
 
-State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `phase`, `review_id`, `started_at`, and the task-start baseline tree, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid` and `review-loop-retries` used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
+State is tracked in `.claude/review-loop.local.json` (add to `.gitignore`) with `active`, `reviewer`, `task`, `round`, `max_rounds`, `review_timeout`, `phase`, `review_id`, `started_at`, and the task-start baseline tree, plus an optional validated `pr_url`. Per-round runtime files under `.claude/` are `review-loop-<reviewer>-prompt.txt` (the rendered prompt) and `review-loop-run-<reviewer>.sh` (the runner script), with `review-loop-child.pid`, `review-loop-retries`, and `review-loop-timed-out` (written by the runner when the review limit passes) used during execution; all are removed when the loop ends. Each loop gets a directory under `reviews/` containing `branch-diff.md`, `task-diff.md`, `summary-0.md`, `review-1.md`, `summary-1.md`, and later numbered review/summary pairs, kept for every terminal outcome.
 
 ## File structure
 
@@ -139,14 +139,18 @@ claude-review-loop/
     │   ├── review-loop.md         # /review-loop slash command
     │   └── cancel-review.md       # /cancel-review slash command
     ├── hooks/
-    │   ├── hooks.json             # Stop hook registration (600s timeout)
+    │   ├── hooks.json             # Stop hook registration (14400s backstop timeout)
     │   └── stop-hook.sh           # Core lifecycle engine
     ├── scripts/
     │   ├── setup-review-loop.sh   # Argument parsing, state file creation
     │   ├── capture-worktree-tree.sh # Capture the task-start worktree tree
     │   ├── resolve-reviewer.sh    # Reviewer selection and config precedence
     │   ├── resolve-max-rounds.sh  # Round-limit selection and validation
+    │   ├── resolve-review-timeout.sh # Reviewer time-limit selection and validation
+    │   ├── read-hook-timeout.sh   # Read the Stop hook timeout from hooks.json
     │   ├── run-reviewer.sh        # Codex, Cursor, and Claude dispatch
+    │   ├── quarantine-review-artifact.sh # Move failed reviews to reviewer-error files
+    │   ├── stop-process-tree.sh   # TERM, then KILL, a process tree
     │   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
     │   ├── cancel-review-loop.sh  # Stop active loop child processes
     │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
@@ -167,9 +171,13 @@ claude-review-loop/
 
 ## Configuration
 
-The stop hook timeout is set to 600 seconds in `hooks/hooks.json` because reviewer CLIs can take several minutes. The hook runs the selected reviewer directly and records its output in `.claude/review-loop.log`; stdout remains reserved for the hook's JSON decision.
+The hook runs the selected reviewer directly and records its output in `.claude/review-loop.log`; stdout remains reserved for the hook's JSON decision.
 
-### Reviewer and round limit
+Each review run is limited by `review_timeout` (default 1800 seconds). When the limit passes, the runner stops the reviewer and its child processes (TERM, then KILL after 5 seconds), logs `ERROR: <reviewer> review timed out after <n>s (limit <n>s)`, quarantines any partial output as `review-<round>.md.reviewer-error.<n>`, and exits with status 124. The hook then blocks with a message that names the limit, and Claude can rerun the generated script once through the retry gate. The rerun enforces the configured limit (without the cap described below), but Claude's Bash tool applies its own time limit to it as well. If the rerun also times out, the loop ends and the message says so.
+
+Claude Code cancels a Stop hook that exceeds the `timeout` in `hooks/hooks.json` and discards its output, so the loop would end without a message. That value can't be configured, so it is set to 14400 seconds as a backstop. At run time the hook reads it and lowers the review limit so the review finishes at least 60 seconds before the backstop, counting the time already spent in the current Stop event; the log records a warning whenever this lowers the configured value. Pull request diff downloads are limited to 60 seconds for the same reason.
+
+### Reviewer, round limit, and time limit
 
 The reviewer is resolved in this order:
 
@@ -185,11 +193,19 @@ The round limit is resolved in this order:
 3. `max_rounds` in `${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml`
 4. `3`
 
+The reviewer time limit is resolved in this order:
+
+1. `REVIEW_LOOP_REVIEW_TIMEOUT`, when set
+2. `review_timeout` in `.review-loop.toml`
+3. `review_timeout` in `${XDG_CONFIG_HOME:-$HOME/.config}/review-loop/config.toml`
+4. `1800`
+
 Project and user configuration files use this format:
 
 ```toml
 reviewer = "cursor"
 max_rounds = 5
+review_timeout = 2700
 ```
 
 Supported reviewers are `codex`, `cursor`, and opt-in `claude`. Claude
@@ -198,8 +214,12 @@ Code OAuth credentials. Because the implementer and reviewer are both Claude
 Code, this mode has reduced vendor independence.
 
 `max_rounds` must be an integer
-from 1 to 10. Malformed reviewer configuration or an invalid round limit
-causes setup to fail instead of silently falling back to another source.
+from 1 to 10. `review_timeout` is a number of seconds: a positive integer no
+larger than the Stop hook timeout in `hooks/hooks.json` minus 60 (14340 with
+the shipped 14400). Setup stores both values in the loop state, so changing
+them affects the next loop, not the running one. Malformed reviewer
+configuration, an invalid round limit, or an invalid time limit causes setup
+to fail instead of silently falling back to another source.
 
 ### Environment variables
 
@@ -207,6 +227,7 @@ causes setup to fail instead of silently falling back to another source.
 |----------|---------|-------------|
 | `REVIEW_LOOP_REVIEWER` | `codex` | Overrides project and user reviewer configuration. Supported values: `codex`, `cursor`, `claude`. |
 | `REVIEW_LOOP_MAX_ROUNDS` | `3` | Maximum review rounds, from 1 to 10. Overrides project and user configuration. |
+| `REVIEW_LOOP_REVIEW_TIMEOUT` | `1800` | Reviewer time limit in seconds, at most the `hooks/hooks.json` Stop hook timeout minus 60. Overrides project and user configuration. |
 | `REVIEW_LOOP_PR` | unset | Optional GitHub or Gitea pull request URL; scopes the review diff to that pull request. |
 | `GITHUB_TOKEN` | unset | Optional token used to fetch private GitHub pull request diffs. |
 | `GITEA_TOKEN` | unset | Optional token used to fetch private Gitea pull request diffs. |
