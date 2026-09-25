@@ -67,7 +67,14 @@ cleanup_generated_files() {
     .claude/review-loop-child.pid.tmp.*
 }
 
-trap 'log "ERROR: hook exited via ERR trap (line $LINENO)"; cleanup_generated_files; printf "{\"decision\":\"approve\"}\n"; exit 0' ERR
+# The JSON is a static string so that this last-resort path cannot fail.
+on_hook_error() {
+  log "ERROR: hook exited via ERR trap (line $1)"
+  cleanup_generated_files
+  printf '%s\n' '{"decision":"approve","systemMessage":"Review Loop stopped without an accepted review: internal error in the Stop hook. See .claude/review-loop.log for details."}'
+  exit 0
+}
+trap 'on_hook_error "$LINENO"' ERR
 
 # Consume stdin (hook input JSON) — must read to avoid broken pipe
 HOOK_INPUT=$(cat)
@@ -85,6 +92,19 @@ cleanup_runtime_files() {
   rm -f "$STATE_FILE" .claude/review-loop.lock
   cleanup_generated_files
 }
+# Ends an active loop without an accepted review. The approve always carries
+# a systemMessage naming the cause and the log, so the loop never ends
+# without the user being told why.
+fail_open() {
+  local cause="$1"
+  local message="Review Loop stopped without an accepted review: ${cause}. See .claude/review-loop.log for details."
+
+  log "Failing open: $cause"
+  cleanup_runtime_files
+  jq -n --arg s "$message" '{decision:"approve", systemMessage:$s}' 2>/dev/null ||
+    printf '{"decision":"approve","systemMessage":"%s"}\n' "$(printf '%s' "$message" | tr -d '"\\\n\r\t')"
+  exit 0
+}
 write_child_pid() {
   local pid="$1"
   local temp_file="${CHILD_PID_FILE}.tmp.$$"
@@ -96,7 +116,7 @@ write_child_pid() {
 }
 clear_child_pid() {
   local pid="$1"
-  if [ -f "$CHILD_PID_FILE" ] && [ "$(cat "$CHILD_PID_FILE" 2>/dev/null || true)" = "$pid" ]; then
+  if [ -f "$CHILD_PID_FILE" ] && [ "$(head -n 1 "$CHILD_PID_FILE" 2>/dev/null || true)" = "$pid" ]; then
     rm -f "$CHILD_PID_FILE"
   fi
 }
@@ -126,9 +146,7 @@ fi
 
 if ! command -v jq >/dev/null 2>&1; then
   log "ERROR: jq is required to read state"
-  cleanup_runtime_files
-  printf '{"decision":"approve"}\n'
-  exit 0
+  fail_open "jq is not installed, so the state file cannot be read"
 fi
 
 if ! jq -e '
@@ -146,9 +164,7 @@ if ! jq -e '
     (.review_timeout | type == "number" and . >= 1 and . <= 999999999 and . == floor))
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
-  cleanup_runtime_files
-  printf '{"decision":"approve"}\n'
-  exit 0
+  fail_open "malformed state file"
 fi
 
 # Parse a field from the JSON state
@@ -237,9 +253,7 @@ if ! ACTIVE=$(parse_field "active") ||
   ! BASELINE_TREE=$(parse_field "baseline_tree") ||
   ! CONFIGURED_REVIEW_TIMEOUT=$(parse_field "review_timeout"); then
   log "ERROR: failed to read JSON state file"
-  cleanup_runtime_files
-  printf '{"decision":"approve"}\n'
-  exit 0
+  fail_open "malformed state file (a field could not be read)"
 fi
 if [ "$PR_URL" = "null" ]; then
   PR_URL=""
@@ -255,9 +269,7 @@ fi
 case "$CONFIGURED_REVIEW_TIMEOUT" in
   0*|*[!0-9]*)
     log "ERROR: review_timeout in state is not a plain positive integer: $CONFIGURED_REVIEW_TIMEOUT"
-    cleanup_runtime_files
-    printf '{"decision":"approve"}\n'
-    exit 0
+    fail_open "malformed state file (review_timeout is not a plain positive integer)"
     ;;
 esac
 TASK_DIFF_FILE=""
@@ -270,17 +282,13 @@ fi
 
 # Not active → clean up and exit
 if [ "$ACTIVE" != "true" ]; then
-  cleanup_runtime_files
-  printf '{"decision":"approve"}\n'
-  exit 0
+  fail_open "the state file marks the loop as inactive"
 fi
 
 # Validate review_id format to prevent path traversal
 if ! echo "$REVIEW_ID" | grep -qE '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'; then
   log "ERROR: invalid review_id format: $REVIEW_ID"
-  cleanup_runtime_files
-  printf '{"decision":"approve"}\n'
-  exit 0
+  fail_open "malformed state file (invalid review_id)"
 
 fi
 REVIEW_DIR="reviews/${REVIEW_ID}"
@@ -311,9 +319,7 @@ case "$REVIEWER" in
     ;;
   *)
     log "ERROR: unsupported reviewer: $REVIEWER"
-    cleanup_runtime_files
-    printf '{"decision":"approve"}\n'
-    exit 0
+    fail_open "unsupported reviewer in the state file"
     ;;
 esac
 
@@ -732,35 +738,115 @@ resolve_configured_review_timeout() {
   log "Review timeout ${CONFIGURED_REVIEW_TIMEOUT}s: ${CONFIGURED_REVIEW_TIMEOUT_SOURCE} (review_id=$REVIEW_ID)"
 }
 
-# Sets HOOK_TIMEOUT and EFFECTIVE_REVIEW_TIMEOUT. The effective limit is the
-# configured one, lowered so that the review ends at least
-# HOOK_TIMEOUT_MARGIN_SECONDS before Claude Code cancels this hook. It is zero
-# or negative when that budget is already spent.
-compute_effective_review_timeout() {
-  local now
-  local elapsed
-  local budget
-
+# Sets HOOK_TIMEOUT, HOOK_ELAPSED and HOOK_BUDGET: the seconds this hook may
+# still spend while leaving HOOK_TIMEOUT_MARGIN_SECONDS before Claude Code
+# cancels it. HOOK_BUDGET is zero or negative when that time is spent.
+read_hook_budget() {
   if ! HOOK_TIMEOUT=$("$HOOK_TIMEOUT_READER" 2>>"$LOG_FILE"); then
     HOOK_TIMEOUT="$FALLBACK_HOOK_TIMEOUT"
     log "WARN: could not read the Stop hook timeout from hooks.json; assuming ${HOOK_TIMEOUT}s"
   fi
   if [ -n "$HOOK_START_WARNING" ]; then
     log "WARN: $HOOK_START_WARNING"
+    HOOK_START_WARNING=""
   fi
-  now=$(date +%s)
-  elapsed=$((now - HOOK_STARTED_AT))
-  budget=$((HOOK_TIMEOUT - elapsed - HOOK_TIMEOUT_MARGIN_SECONDS))
+  HOOK_ELAPSED=$(( $(date +%s) - HOOK_STARTED_AT ))
+  HOOK_BUDGET=$((HOOK_TIMEOUT - HOOK_ELAPSED - HOOK_TIMEOUT_MARGIN_SECONDS))
+}
+
+# Sets HOOK_TIMEOUT and EFFECTIVE_REVIEW_TIMEOUT. The effective limit is the
+# configured one, lowered to the remaining hook budget. It is zero or
+# negative when that budget is already spent.
+compute_effective_review_timeout() {
+  read_hook_budget
   EFFECTIVE_REVIEW_TIMEOUT="$CONFIGURED_REVIEW_TIMEOUT"
-  if [ "$budget" -lt "$EFFECTIVE_REVIEW_TIMEOUT" ]; then
-    EFFECTIVE_REVIEW_TIMEOUT="$budget"
+  if [ "$HOOK_BUDGET" -lt "$EFFECTIVE_REVIEW_TIMEOUT" ]; then
+    EFFECTIVE_REVIEW_TIMEOUT="$HOOK_BUDGET"
   fi
-  log "Review timeout: configured=${CONFIGURED_REVIEW_TIMEOUT}s, hook_timeout=${HOOK_TIMEOUT}s, hook_elapsed=${elapsed}s (start time: ${HOOK_START_SOURCE}), margin=${HOOK_TIMEOUT_MARGIN_SECONDS}s, effective=${EFFECTIVE_REVIEW_TIMEOUT}s (review_id=$REVIEW_ID, round=$ROUND)"
+  log "Review timeout: configured=${CONFIGURED_REVIEW_TIMEOUT}s, hook_timeout=${HOOK_TIMEOUT}s, hook_elapsed=${HOOK_ELAPSED}s (start time: ${HOOK_START_SOURCE}), margin=${HOOK_TIMEOUT_MARGIN_SECONDS}s, effective=${EFFECTIVE_REVIEW_TIMEOUT}s (review_id=$REVIEW_ID, round=$ROUND)"
   if [ "$EFFECTIVE_REVIEW_TIMEOUT" -le 0 ]; then
-    log "ERROR: no time left for the reviewer inside the ${HOOK_TIMEOUT}s Claude Code Stop hook timeout (elapsed ${elapsed}s, margin ${HOOK_TIMEOUT_MARGIN_SECONDS}s); not starting ${REVIEWER}"
+    log "ERROR: no time left for the reviewer inside the ${HOOK_TIMEOUT}s Claude Code Stop hook timeout (elapsed ${HOOK_ELAPSED}s, margin ${HOOK_TIMEOUT_MARGIN_SECONDS}s); not starting ${REVIEWER}"
   elif [ "$EFFECTIVE_REVIEW_TIMEOUT" -lt "$CONFIGURED_REVIEW_TIMEOUT" ]; then
     log "WARN: review timeout capped from ${CONFIGURED_REVIEW_TIMEOUT}s to ${EFFECTIVE_REVIEW_TIMEOUT}s to finish inside the ${HOOK_TIMEOUT}s Claude Code Stop hook timeout"
   fi
+}
+
+# A zombie still answers kill -0 until its parent reaps it; it counts as
+# finished.
+process_is_running() {
+  local state
+
+  kill -0 "$1" 2>/dev/null || return 1
+  state=$(ps -o stat= -p "$1" 2>/dev/null || true)
+  case "$state" in
+    Z*) return 1 ;;
+  esac
+}
+
+# Prints the PID of the generated runner if one is still working on this
+# loop, which happens when Claude started the retry-gate rerun in the
+# background and stopped before it finished. The command line check keeps a
+# stale PID file, whose PID may since have been reused, from being waited on.
+live_runner_pid() {
+  local pid
+  local command_line
+
+  [ -f "$CHILD_PID_FILE" ] || return 1
+  pid=$(head -n 1 "$CHILD_PID_FILE" 2>/dev/null || true)
+  case "$pid" in
+    ''|0*|*[!0-9]*)
+      log "WARN: ignoring malformed reviewer PID file: $CHILD_PID_FILE"
+      return 1
+      ;;
+  esac
+  if ! process_is_running "$pid"; then
+    log "Ignoring stale reviewer PID file: pid $pid is not running"
+    return 1
+  fi
+  command_line=$(ps -o args= -p "$pid" 2>/dev/null || true)
+  case "$command_line" in
+    *"${RUNNER_SCRIPT##*/}"*)
+      printf '%s\n' "$pid"
+      ;;
+    *)
+      log "Ignoring stale reviewer PID file: pid $pid is not a review runner (${command_line:-no command line})"
+      return 1
+      ;;
+  esac
+}
+
+# Waits, inside the hook budget, for a runner that is still running, so its
+# result is evaluated instead of being counted as a missing review. When the
+# budget runs out first, blocks and asks Claude to wait for the rerun.
+wait_for_live_runner() {
+  local runner_pid
+  local wait_started
+  local deadline
+  local waited
+  local reason
+  local system_message
+
+  runner_pid=$(live_runner_pid) || return 0
+  read_hook_budget
+  wait_started=$(date +%s)
+  deadline=$((wait_started + HOOK_BUDGET))
+  log "Waiting for the running ${REVIEWER} review (runner pid=$runner_pid, budget ${HOOK_BUDGET}s, review_id=$REVIEW_ID, round=$ROUND)"
+  while process_is_running "$runner_pid" && [ "$(date +%s)" -lt "$deadline" ]; do
+    sleep 1
+  done
+  waited=$(( $(date +%s) - wait_started ))
+  if ! process_is_running "$runner_pid"; then
+    log "The running ${REVIEWER} review finished after waiting ${waited}s (runner pid=$runner_pid)"
+    return 0
+  fi
+
+  log "WARN: the ${REVIEWER} review is still running after waiting ${waited}s; the Stop hook budget is spent (runner pid=$runner_pid, hook timeout ${HOOK_TIMEOUT}s)"
+  reason="The ${REVIEWER} review started with bash ${RUNNER_SCRIPT} is still running (pid ${runner_pid}). Do not start another run. Wait for its background completion notification, then read ${REVIEW_FILE} and continue; the Stop hook evaluates the review once the run has finished."
+  system_message="Review Loop [${REVIEW_ID}] — ${REVIEWER} review still running after the Stop hook waited ${waited}s; waiting for the rerun to finish"
+  jq -n --arg r "$reason" --arg s "$system_message" \
+    '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+    || printf '{"decision":"block","reason":"The %s review is still running. Wait for it to finish, then continue.","systemMessage":"Review Loop: %s review still running"}\n' "$REVIEWER" "$REVIEWER"
+  exit 0
 }
 
 case "$PHASE" in
@@ -770,9 +856,7 @@ case "$PHASE" in
     # blocking so Claude can address its findings.
     if ! mkdir -p "$REVIEW_DIR"; then
       log "ERROR: failed to create review directory: $REVIEW_DIR"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
-      exit 0
+      fail_open "the review directory could not be created"
     fi
     BRANCH_DIFF_FILE="${REVIEW_DIR}/branch-diff.md"
     TASK_DIFF_FILE="${REVIEW_DIR}/task-diff.md"
@@ -783,9 +867,7 @@ case "$PHASE" in
     fi
     if ! compute_review_diff "$BRANCH_DIFF_FILE"; then
       log "ERROR: failed to write branch diff: $BRANCH_DIFF_FILE"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
-      exit 0
+      fail_open "the review diff could not be written"
     fi
 
 
@@ -798,9 +880,10 @@ case "$PHASE" in
 Install it: ${REVIEWER_INSTALL}
 
 Then run /review-loop again."
-      jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null \
-        || printf '{"decision":"block","reason":"%s CLI (%s) is not installed. Install it: %s"}\n' \
-          "$REVIEWER_NAME" "$REVIEWER_CLI" "$REVIEWER_INSTALL"
+      SYS_MSG="Review Loop stopped: the ${REVIEWER_NAME} CLI (${REVIEWER_CLI}) is not installed. See .claude/review-loop.log for details."
+      jq -n --arg r "$REASON" --arg s "$SYS_MSG" '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+        || printf '{"decision":"block","reason":"%s CLI (%s) is not installed. Install it: %s","systemMessage":"%s"}\n' \
+          "$REVIEWER_NAME" "$REVIEWER_CLI" "$REVIEWER_INSTALL" "$SYS_MSG"
       exit 0
     fi
 
@@ -817,8 +900,9 @@ Add to ~/.codex/config.toml:
   multi_agent = true
 
 Then run /review-loop again."
-        jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null \
-          || printf '{"decision":"block","reason":"Codex multi-agent is not enabled in ~/.codex/config.toml"}\n'
+        SYS_MSG="Review Loop stopped: Codex multi-agent is not enabled in ~/.codex/config.toml. See .claude/review-loop.log for details."
+        jq -n --arg r "$REASON" --arg s "$SYS_MSG" '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
+          || printf '{"decision":"block","reason":"Codex multi-agent is not enabled in ~/.codex/config.toml","systemMessage":"%s"}\n' "$SYS_MSG"
         exit 0
       fi
     fi
@@ -826,9 +910,7 @@ Then run /review-loop again."
 
     if ! REVIEW_PROMPT=$(build_review_prompt); then
       log "ERROR: failed to render review prompt"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
-      exit 0
+      fail_open "the review prompt could not be rendered"
     fi
     printf '%s' "$REVIEW_PROMPT" > "$PROMPT_FILE"
 
@@ -854,20 +936,21 @@ REVIEW_TIMEOUT='${CONFIGURED_REVIEW_TIMEOUT}'
 TERM_GRACE_SECONDS=5
 WATCHDOG_TIMEOUT_STATUS=124
 PID_FILE=".claude/review-loop-child.pid"
-TRACKED_PID="\$\$"
+RUNNER_PID="\$\$"
 REVIEWER_PID=""
 WATCHDOG_PID=""
-write_pid() {
-  local pid="\$1"
+# The runner PID comes first: the Stop hook waits for it, and /cancel-review
+# stops its whole tree. The dispatcher PID follows once it exists.
+write_pids() {
   local temp_file="\$PID_FILE.tmp.\$\$"
-  if printf '%s\n' "\$pid" > "\$temp_file"; then
+  if printf '%s\n' "\$@" > "\$temp_file"; then
     mv "\$temp_file" "\$PID_FILE"
   else
     rm -f "\$temp_file"
   fi
 }
 clear_pid() {
-  if [ -f "\$PID_FILE" ] && [ "\$(cat "\$PID_FILE" 2>/dev/null || true)" = "\$TRACKED_PID" ]; then
+  if [ -f "\$PID_FILE" ] && [ "\$(head -n 1 "\$PID_FILE" 2>/dev/null || true)" = "\$RUNNER_PID" ]; then
     rm -f "\$PID_FILE"
   fi
 }
@@ -967,7 +1050,7 @@ quarantine_partial_artifact() {
 # be trapped, so only TERM and HUP are handled.
 trap clear_pid EXIT
 trap handle_runner_signal TERM HUP
-write_pid "\$TRACKED_PID"
+write_pids "\$RUNNER_PID"
 if [ ! -f "\$PROMPT_FILE" ]; then
   echo "ERROR: prompt file missing: \$PROMPT_FILE" >&2
   exit 1
@@ -1011,8 +1094,7 @@ set -m
 "\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE" &
 REVIEWER_PID=\$!
 set +m
-TRACKED_PID="\$REVIEWER_PID"
-write_pid "\$TRACKED_PID"
+write_pids "\$RUNNER_PID" "\$REVIEWER_PID"
 run_watchdog "\$REVIEWER_PID" &
 WATCHDOG_PID=\$!
 if wait "\$REVIEWER_PID"; then
@@ -1100,9 +1182,7 @@ RUNNER_EOF
     # a failed transition leaves phase=task and the next stop re-runs everything.
     if ! transition_phase "addressing"; then
       log "ERROR: phase transition failed, cleaning up"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
-      exit 0
+      fail_open "phase transition failed"
     fi
 
     log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
@@ -1131,9 +1211,7 @@ RUNNER_EOF
 
     if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-review.md"); then
       log "ERROR: failed to render review handoff prompt"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
-      exit 0
+      fail_open "the review handoff prompt could not be rendered"
     fi
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -1142,13 +1220,12 @@ RUNNER_EOF
 
   addressing)
     # ── Phase 2: verify review verdict before allowing exit ───────────────
+    wait_for_live_runner
     if [ -f "$REVIEW_FILE" ] && ! correction_summary_is_usable "$SUMMARY_FILE"; then
       log "Correction summary missing or incomplete (review_id=$REVIEW_ID, round=$ROUND, file=$SUMMARY_FILE)"
       if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-summary.md"); then
         log "ERROR: failed to render correction summary prompt"
-        cleanup_runtime_files
-        printf '{"decision":"approve"}\n'
-        exit 0
+        fail_open "the correction summary prompt could not be rendered"
       fi
       SYS_MSG="Review Loop [${REVIEW_ID}] — Correction summary required"
       jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
@@ -1174,9 +1251,7 @@ RUNNER_EOF
             NEXT_ROUND=$((ROUND + 1))
             if ! transition_to_next_round "$NEXT_ROUND"; then
               log "ERROR: failed to advance review loop to round $NEXT_ROUND"
-              cleanup_runtime_files
-              printf '{"decision":"approve"}\n'
-              exit 0
+              fail_open "phase transition to the next round failed"
             fi
             log "Review round $ROUND failed; re-running reviewer for round $NEXT_ROUND"
             REVIEW_LOOP_HOOK_STARTED_AT="$HOOK_STARTED_AT" exec "$STOP_HOOK_SCRIPT" <<< "$HOOK_INPUT"
@@ -1186,9 +1261,7 @@ RUNNER_EOF
         log "Review verdict: FAIL (missing or malformed, review_id=$REVIEW_ID)"
         if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-verdict.md"); then
           log "ERROR: failed to render verdict prompt"
-          cleanup_runtime_files
-          printf '{"decision":"approve"}\n'
-          exit 0
+          fail_open "the verdict prompt could not be rendered"
         fi
         SYS_MSG="Review Loop [${REVIEW_ID}] — Verdict: FAIL"
         jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
@@ -1217,22 +1290,16 @@ RUNNER_EOF
       if [ "$RETRY_COUNT" -ge 2 ]; then
         # Already told Claude to run the script once — reviewer failed, don't retry
         log "ERROR: $REVIEWER failed to produce review, failing open (review_id=$REVIEW_ID)"
-        cleanup_runtime_files
         if [ -n "$RERUN_TIMEOUT" ]; then
-          SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out after ${RERUN_TIMEOUT}s on the rerun; the loop ended without a review (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
-          jq -n --arg s "$SYS_MSG" '{decision:"approve", systemMessage:$s}' 2>/dev/null \
-            || printf '{"decision":"approve","systemMessage":"%s"}\n' "$SYS_MSG"
-        else
-          printf '{"decision":"approve"}\n'
+          fail_open "the ${REVIEWER} review timed out after ${RERUN_TIMEOUT}s on the rerun, so no review was produced after the retry (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
         fi
+        fail_open "no ${REVIEWER} review was produced after the retry"
       else
         echo "$RETRY_COUNT" > "$RETRY_FILE"
         log "Review file not found ($REVIEW_FILE), prompting Claude to run $REVIEWER"
         if ! REASON=$(render_prompt_template "$PROMPTS_DIR/addressing-missing-review.md"); then
           log "ERROR: failed to render missing review prompt"
-          cleanup_runtime_files
-          printf '{"decision":"approve"}\n'
-          exit 0
+          fail_open "the missing-review prompt could not be rendered"
         fi
         SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review not yet complete"
         if [ -n "$RERUN_TIMEOUT" ]; then
@@ -1245,15 +1312,13 @@ RUNNER_EOF
     else
       # Neither review nor runner script — orphaned state, fail-open
       log "ERROR: review file and runner script both missing, cleaning up (review_id=$REVIEW_ID)"
-      cleanup_runtime_files
-      printf '{"decision":"approve"}\n'
+      fail_open "orphaned state: neither the review nor the runner script exists"
     fi
     ;;
 
   *)
     # Unknown phase — clean up and allow exit
     log "WARN: unknown phase '$PHASE', cleaning up"
-    cleanup_runtime_files
-    printf '{"decision":"approve"}\n'
+    fail_open "unknown phase in the state file"
     ;;
 esac

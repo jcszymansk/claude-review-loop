@@ -26,7 +26,9 @@ Read __REVIEW_FILE__ and address the findings:
    (PASS, FAIL, or NOT RUN), and note the verification you performed for each
    fix in the Fixes section
 
-If __REVIEW_FILE__ is missing or malformed, rerun the reviewer with a 600000ms timeout:
+If __REVIEW_FILE__ is missing or malformed, rerun the reviewer with the Bash tool's
+`run_in_background` option (the script stops the reviewer at its own time
+limit), and wait for the completion notification before continuing:
 ```
 bash __RUNNER_SCRIPT__
 ```
