@@ -29,6 +29,7 @@ Starts a review loop:
 Environment variables:
   REVIEW_LOOP_REVIEWER  Reviewer to run: codex, cursor, or claude
   REVIEW_LOOP_MAX_ROUNDS  Maximum review rounds, from 1 to 10 (default: 3)
+  REVIEW_LOOP_REVIEW_TIMEOUT  Reviewer time limit in seconds (default: 1800)
   REVIEW_LOOP_PR  Optional GitHub or Gitea pull request URL to review
   REVIEW_LOOP_CODEX_FLAGS  Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
   REVIEW_LOOP_CURSOR_FLAGS  Override Cursor Agent flags (default: --output-format text)
@@ -40,12 +41,16 @@ Configuration files:
 The reviewer is resolved in this order: REVIEW_LOOP_REVIEWER, project
 configuration, user configuration, then codex. The round limit is resolved
 from REVIEW_LOOP_MAX_ROUNDS, project configuration, user configuration, then
-the default of 3.
+the default of 3. The reviewer time limit is resolved from
+REVIEW_LOOP_REVIEW_TIMEOUT, project configuration, user configuration, then
+the default of 1800 seconds; it must not exceed the Stop hook timeout in
+hooks/hooks.json minus 60 seconds.
   --pr <url> scopes the review to a GitHub or Gitea pull request
 
 Configuration format:
   reviewer = "cursor"
   max_rounds = 5
+  review_timeout = 2700
 
 
 Example:
@@ -76,6 +81,7 @@ if [ -z "$PROMPT" ]; then
   exit 1
 fi
 MAX_ROUNDS="$("$SCRIPT_DIR/resolve-max-rounds.sh")"
+REVIEW_TIMEOUT="$("$SCRIPT_DIR/resolve-review-timeout.sh")"
 
 case "$REVIEWER" in
   codex)
@@ -148,9 +154,10 @@ jq -n \
   --arg baseline_tree "$BASELINE_TREE" \
   --argjson round 1 \
   --argjson max_rounds "$MAX_ROUNDS" \
+  --argjson review_timeout "$REVIEW_TIMEOUT" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_timeout:$review_timeout, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
    if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
@@ -160,6 +167,7 @@ mv "$STATE_TEMP" "$STATE_FILE"
 echo ""
 echo "Review Loop activated"
 echo "  ID:      ${REVIEW_ID}"
+echo "  Timeout: ${REVIEW_TIMEOUT}s per review"
 echo "  Phase:   1/2 — Task implementation"
 echo "  Summary: ${LOOP_DIR}/summary-0.md"
 echo "  Review:  ${LOOP_DIR}/review-1.md"

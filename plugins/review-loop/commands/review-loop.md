@@ -58,6 +58,7 @@ case "$REVIEWER" in
 esac
 REVIEW_ID="$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3 2>/dev/null || head -c 3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 MAX_ROUNDS="$("${CLAUDE_PLUGIN_ROOT}/scripts/resolve-max-rounds.sh")"
+REVIEW_TIMEOUT="$("${CLAUDE_PLUGIN_ROOT}/scripts/resolve-review-timeout.sh")"
 mkdir -p .claude reviews
 STATE_FILE=".claude/review-loop.local.json"
 if [ -f "$STATE_FILE" ]; then
@@ -98,13 +99,14 @@ jq -n \
   --arg baseline_tree "$BASELINE_TREE" \
   --argjson round 1 \
   --argjson max_rounds "$MAX_ROUNDS" \
+  --argjson review_timeout "$REVIEW_TIMEOUT" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
+  '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_timeout:$review_timeout, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
    if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
-echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER})"
+echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER}, review timeout: ${REVIEW_TIMEOUT}s)"
 echo "Review artifacts: ${LOOP_DIR}/summary-0.md and ${LOOP_DIR}/review-1.md"
 ```
 
