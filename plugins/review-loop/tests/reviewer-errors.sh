@@ -239,10 +239,12 @@ jq -e '.decision == "approve"' <<< "$output" >/dev/null
 [ -f "$REVIEW_FILE.reviewer-error.2" ]
 [ -f "$REVIEW_DIR/summary-0.md" ]
 
-# ── Reviewer times out (hangs, then is killed) ─────────────────────────────
-# Simulates the harness timeout killing a hung reviewer. The loop must not
-# report PASS, must keep state for the retry gate, must leave no tracked
-# child behind, and must recover when the rerun succeeds.
+# ── Hung reviewer killed from outside ──────────────────────────────────────
+# Something other than the runner's watchdog (an OOM killer, a user's kill)
+# stops a hung reviewer while the hook survives. The loop must not report
+# PASS, must keep state for the retry gate, must leave no tracked child
+# behind, and must recover when the rerun succeeds. The runner's own timeout
+# is covered by review-timeout.sh.
 export FAKE_REVIEW_MODE=hang FAKE_REVIEWER_PID_FILE="$REVIEWER_PID_FILE"
 write_state
 (
@@ -295,4 +297,4 @@ jq -e '.decision == "approve"' <<< "$output" >/dev/null
 [ -f "$REVIEW_DIR/summary-0.md" ]
 [ -f "$REVIEW_DIR/summary-1.md" ]
 
-printf 'reviewer error and timeout tests passed\n'
+printf 'reviewer error tests passed\n'

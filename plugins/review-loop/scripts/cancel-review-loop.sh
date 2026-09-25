@@ -14,6 +14,7 @@ runtime_files=(
   ".claude/review-loop-cursor-prompt.txt"
   ".claude/review-loop-claude-prompt.txt"
   ".claude/review-loop-retries"
+  ".claude/review-loop-timed-out"
   "$PID_FILE"
 )
 

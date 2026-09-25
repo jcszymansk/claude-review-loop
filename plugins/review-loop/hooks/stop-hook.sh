@@ -12,6 +12,38 @@
 # REVIEW_LOOP_CODEX_FLAGS    Override Codex flags (default: --dangerously-bypass-approvals-and-sandbox)
 # REVIEW_LOOP_CURSOR_FLAGS   Override Cursor Agent flags (default: --output-format text)
 # REVIEW_LOOP_CLAUDE_FLAGS   Override Claude flags (default: --permission-mode acceptEdits)
+#
+# Reviewer time limit:
+#   review_timeout in the state file, resolved at setup from
+#   REVIEW_LOOP_REVIEW_TIMEOUT, .review-loop.toml, and the user config
+#   (default: 1800s). The generated runner enforces it with a watchdog. The
+#   hook lowers it when needed so the review ends before Claude Code's own
+#   Stop hook timeout (hooks/hooks.json) cancels the hook and discards its
+#   output.
+
+# Claude Code's timeout counts from the start of the Stop event, so the clock
+# starts before anything else runs. A FAIL → next round transition re-execs
+# this script and hands the original start time over, so it is not reset.
+HOOK_STARTED_AT=$(date +%s)
+HOOK_START_SOURCE="this invocation"
+HOOK_START_WARNING=""
+if [ -n "${REVIEW_LOOP_HOOK_STARTED_AT:-}" ]; then
+  case "$REVIEW_LOOP_HOOK_STARTED_AT" in
+    *[!0-9]*)
+      HOOK_START_WARNING="ignoring non-numeric REVIEW_LOOP_HOOK_STARTED_AT=${REVIEW_LOOP_HOOK_STARTED_AT}"
+      ;;
+    *)
+      if [ "${#REVIEW_LOOP_HOOK_STARTED_AT}" -le 12 ] &&
+        [ "$REVIEW_LOOP_HOOK_STARTED_AT" -le "$HOOK_STARTED_AT" ]; then
+        HOOK_STARTED_AT="$REVIEW_LOOP_HOOK_STARTED_AT"
+        HOOK_START_SOURCE="inherited from the re-executed hook"
+      else
+        HOOK_START_WARNING="ignoring REVIEW_LOOP_HOOK_STARTED_AT=${REVIEW_LOOP_HOOK_STARTED_AT} because it is in the future"
+      fi
+      ;;
+  esac
+fi
+unset REVIEW_LOOP_HOOK_STARTED_AT
 
 LOG_FILE=".claude/review-loop.log"
 log() {
@@ -29,6 +61,7 @@ cleanup_generated_files() {
     .claude/review-loop-cursor-prompt.txt \
     .claude/review-loop-claude-prompt.txt \
     .claude/review-loop-retries \
+    .claude/review-loop-timed-out \
     .claude/review-loop-child.pid \
     .claude/review-loop-child.pid.tmp.*
 }
@@ -69,6 +102,14 @@ clear_child_pid() {
 REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 PR_URL_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-pr-url.sh"
 BASELINE_SCRIPT="$REVIEWER_SCRIPTS_DIR/capture-worktree-tree.sh"
+HOOK_TIMEOUT_READER="$REVIEWER_SCRIPTS_DIR/read-hook-timeout.sh"
+REVIEW_TIMEOUT_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-review-timeout.sh"
+STOP_TREE_SCRIPT="$REVIEWER_SCRIPTS_DIR/stop-process-tree.sh"
+QUARANTINE_SCRIPT="$REVIEWER_SCRIPTS_DIR/quarantine-review-artifact.sh"
+TIMEOUT_FLAG_FILE=".claude/review-loop-timed-out"
+DEFAULT_REVIEW_TIMEOUT=1800
+FALLBACK_HOOK_TIMEOUT=600
+HOOK_TIMEOUT_MARGIN_SECONDS=60
 PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
 STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
 case "$STOP_HOOK_SCRIPT" in
@@ -100,6 +141,8 @@ if ! jq -e '
   and (.review_id | type == "string")
   and ((has("pr_url") | not) or (.pr_url | type == "string"))
   and ((has("baseline_tree") | not) or (.baseline_tree | type == "string"))
+  and ((has("review_timeout") | not) or
+    (.review_timeout | type == "number" and . >= 1 and . <= 999999999 and . == floor))
 ' "$STATE_FILE" >/dev/null 2>&1; then
   log "ERROR: malformed JSON state file"
   cleanup_runtime_files
@@ -190,7 +233,8 @@ if ! ACTIVE=$(parse_field "active") ||
   ! MAX_ROUNDS=$(parse_field "max_rounds") ||
   ! REVIEW_ID=$(parse_field "review_id") ||
   ! PR_URL=$(parse_field "pr_url") ||
-  ! BASELINE_TREE=$(parse_field "baseline_tree"); then
+  ! BASELINE_TREE=$(parse_field "baseline_tree") ||
+  ! CONFIGURED_REVIEW_TIMEOUT=$(parse_field "review_timeout"); then
   log "ERROR: failed to read JSON state file"
   cleanup_runtime_files
   printf '{"decision":"approve"}\n'
@@ -201,6 +245,9 @@ if [ "$PR_URL" = "null" ]; then
 fi
 if [ "$BASELINE_TREE" = "null" ]; then
   BASELINE_TREE=""
+fi
+if [ "$CONFIGURED_REVIEW_TIMEOUT" = "null" ]; then
+  CONFIGURED_REVIEW_TIMEOUT=""
 fi
 TASK_DIFF_FILE=""
 REVIEW_SCOPE="local branch diff"
@@ -656,6 +703,55 @@ transition_to_next_round() {
   return 0
 }
 
+# ── Reviewer time limit ────────────────────────────────────────────────────
+resolve_configured_review_timeout() {
+  local resolved
+
+  if [ -n "$CONFIGURED_REVIEW_TIMEOUT" ]; then
+    CONFIGURED_REVIEW_TIMEOUT_SOURCE="state file"
+    return 0
+  fi
+  if resolved=$("$REVIEW_TIMEOUT_RESOLVER" 2>>"$LOG_FILE"); then
+    CONFIGURED_REVIEW_TIMEOUT="$resolved"
+    CONFIGURED_REVIEW_TIMEOUT_SOURCE="resolved at hook time for legacy state without review_timeout"
+  else
+    CONFIGURED_REVIEW_TIMEOUT="$DEFAULT_REVIEW_TIMEOUT"
+    CONFIGURED_REVIEW_TIMEOUT_SOURCE="default for legacy state without review_timeout; hook-time resolution failed"
+  fi
+  log "Review timeout ${CONFIGURED_REVIEW_TIMEOUT}s: ${CONFIGURED_REVIEW_TIMEOUT_SOURCE} (review_id=$REVIEW_ID)"
+}
+
+# Sets HOOK_TIMEOUT and EFFECTIVE_REVIEW_TIMEOUT. The effective limit is the
+# configured one, lowered so that the review ends at least
+# HOOK_TIMEOUT_MARGIN_SECONDS before Claude Code cancels this hook. It is zero
+# or negative when that budget is already spent.
+compute_effective_review_timeout() {
+  local now
+  local elapsed
+  local budget
+
+  if ! HOOK_TIMEOUT=$("$HOOK_TIMEOUT_READER" 2>>"$LOG_FILE"); then
+    HOOK_TIMEOUT="$FALLBACK_HOOK_TIMEOUT"
+    log "WARN: could not read the Stop hook timeout from hooks.json; assuming ${HOOK_TIMEOUT}s"
+  fi
+  if [ -n "$HOOK_START_WARNING" ]; then
+    log "WARN: $HOOK_START_WARNING"
+  fi
+  now=$(date +%s)
+  elapsed=$((now - HOOK_STARTED_AT))
+  budget=$((HOOK_TIMEOUT - elapsed - HOOK_TIMEOUT_MARGIN_SECONDS))
+  EFFECTIVE_REVIEW_TIMEOUT="$CONFIGURED_REVIEW_TIMEOUT"
+  if [ "$budget" -lt "$EFFECTIVE_REVIEW_TIMEOUT" ]; then
+    EFFECTIVE_REVIEW_TIMEOUT="$budget"
+  fi
+  log "Review timeout: configured=${CONFIGURED_REVIEW_TIMEOUT}s, hook_timeout=${HOOK_TIMEOUT}s, hook_elapsed=${elapsed}s (start time: ${HOOK_START_SOURCE}), margin=${HOOK_TIMEOUT_MARGIN_SECONDS}s, effective=${EFFECTIVE_REVIEW_TIMEOUT}s (review_id=$REVIEW_ID, round=$ROUND)"
+  if [ "$EFFECTIVE_REVIEW_TIMEOUT" -le 0 ]; then
+    log "ERROR: no time left for the reviewer inside the ${HOOK_TIMEOUT}s Claude Code Stop hook timeout (elapsed ${elapsed}s, margin ${HOOK_TIMEOUT_MARGIN_SECONDS}s); not starting ${REVIEWER}"
+  elif [ "$EFFECTIVE_REVIEW_TIMEOUT" -lt "$CONFIGURED_REVIEW_TIMEOUT" ]; then
+    log "WARN: review timeout capped from ${CONFIGURED_REVIEW_TIMEOUT}s to ${EFFECTIVE_REVIEW_TIMEOUT}s to finish inside the ${HOOK_TIMEOUT}s Claude Code Stop hook timeout"
+  fi
+}
+
 case "$PHASE" in
   task)
     # ── Phase 1 → 2: Run the configured reviewer ──────────────────────────
@@ -725,6 +821,15 @@ Then run /review-loop again."
     fi
     printf '%s' "$REVIEW_PROMPT" > "$PROMPT_FILE"
 
+    resolve_configured_review_timeout
+    compute_effective_review_timeout
+    # A manual rerun through the retry gate runs outside this hook, so when
+    # the hook budget is already spent the runner keeps the configured limit.
+    RUNNER_REVIEW_TIMEOUT="$EFFECTIVE_REVIEW_TIMEOUT"
+    if [ "$RUNNER_REVIEW_TIMEOUT" -le 0 ]; then
+      RUNNER_REVIEW_TIMEOUT="$CONFIGURED_REVIEW_TIMEOUT"
+    fi
+
     cat > "$RUNNER_SCRIPT" << RUNNER_EOF
 #!/usr/bin/env bash
 LOG_FILE=".claude/review-loop.log"
@@ -734,8 +839,16 @@ REVIEWER='${REVIEWER}'
 PROMPT_FILE='${PROMPT_FILE}'
 REVIEW_FILE='${REVIEW_FILE}'
 DISPATCHER_SCRIPT='${REVIEWER_DISPATCHER}'
+STOP_TREE_SCRIPT='${STOP_TREE_SCRIPT}'
+QUARANTINE_SCRIPT='${QUARANTINE_SCRIPT}'
+TIMEOUT_FLAG_FILE='${TIMEOUT_FLAG_FILE}'
+REVIEW_TIMEOUT='${RUNNER_REVIEW_TIMEOUT}'
+TERM_GRACE_SECONDS=5
 PID_FILE=".claude/review-loop-child.pid"
+RUNNER_PID="\$\$"
 TRACKED_PID="\$\$"
+REVIEWER_PID=""
+WATCHDOG_PID=""
 write_pid() {
   local pid="\$1"
   local temp_file="\$PID_FILE.tmp.\$\$"
@@ -750,7 +863,75 @@ clear_pid() {
     rm -f "\$PID_FILE"
   fi
 }
+log_lines() {
+  local prefix="\$1"
+  local line
+  while IFS= read -r line; do
+    log "\$prefix\$line"
+  done
+}
+
+# Runs in a background subshell. The TERM trap kills the sleep so a stopped
+# watchdog never leaves it behind; the runner also stops the whole watchdog
+# tree, which covers a TERM that lands before the sleep PID is known.
+run_watchdog() {
+  local target_pid="\$1"
+  local sleep_pid=""
+  local target_parent
+
+  trap 'if [ -n "\$sleep_pid" ]; then kill "\$sleep_pid" 2>/dev/null; fi; exit 0' TERM INT HUP
+  sleep "\$REVIEW_TIMEOUT" &
+  sleep_pid=\$!
+  if ! wait "\$sleep_pid"; then
+    exit 0
+  fi
+
+  # The PID may have been reused if the runner died without stopping this
+  # watchdog; only a reviewer that is still the runner's child is ours.
+  target_parent=\$(ps -o ppid= -p "\$target_pid" 2>/dev/null | tr -d ' ')
+  if [ "\$target_parent" != "\$RUNNER_PID" ]; then
+    log "WARN: review watchdog fired, but pid \$target_pid is no longer a child of runner \$RUNNER_PID; nothing to stop"
+    exit 0
+  fi
+  printf '%s\n' "\$REVIEW_TIMEOUT" > "\$TIMEOUT_FLAG_FILE"
+  log "ERROR: review watchdog fired after \${REVIEW_TIMEOUT}s; stopping the \$REVIEWER process tree (pid=\$target_pid, TERM grace \${TERM_GRACE_SECONDS}s)"
+  "\$STOP_TREE_SCRIPT" "\$target_pid" "\$TERM_GRACE_SECONDS" | log_lines "review watchdog: "
+}
+
+# Once the watchdog has fired it is left to finish, so a reviewer process
+# that ignores TERM still gets KILLed.
+stop_watchdog() {
+  [ -n "\$WATCHDOG_PID" ] || return 0
+  if [ ! -f "\$TIMEOUT_FLAG_FILE" ]; then
+    "\$STOP_TREE_SCRIPT" "\$WATCHDOG_PID" 1 >/dev/null 2>&1
+  fi
+  wait "\$WATCHDOG_PID" 2>/dev/null
+  WATCHDOG_PID=""
+}
+
+handle_runner_signal() {
+  log "WARN: review runner received a termination signal; stopping \$REVIEWER and the watchdog"
+  stop_watchdog
+  if [ -n "\$REVIEWER_PID" ]; then
+    "\$STOP_TREE_SCRIPT" "\$REVIEWER_PID" "\$TERM_GRACE_SECONDS" | log_lines "review runner: "
+  fi
+  exit 143
+}
+
+quarantine_partial_artifact() {
+  local source_file="\$1"
+  local quarantine_file
+
+  if quarantine_file=\$("\$QUARANTINE_SCRIPT" "\$REVIEW_FILE" "\$source_file"); then
+    log "Quarantined partial review artifact after timeout: \$quarantine_file"
+  else
+    log "ERROR: failed to quarantine partial review artifact: \$source_file"
+    rm -f "\$source_file"
+  fi
+}
+
 trap clear_pid EXIT
+trap handle_runner_signal TERM INT HUP
 write_pid "\$TRACKED_PID"
 if [ ! -f "\$PROMPT_FILE" ]; then
   echo "ERROR: prompt file missing: \$PROMPT_FILE" >&2
@@ -760,21 +941,48 @@ if [ ! -x "\$DISPATCHER_SCRIPT" ]; then
   echo "ERROR: reviewer dispatcher missing: \$DISPATCHER_SCRIPT" >&2
   exit 1
 fi
+case "\$REVIEW_TIMEOUT" in
+  ''|0*|*[!0-9]*)
+    log "ERROR: invalid review timeout in runner: \$REVIEW_TIMEOUT"
+    echo "ERROR: invalid review timeout: \$REVIEW_TIMEOUT" >&2
+    exit 1
+    ;;
+esac
+rm -f "\$TIMEOUT_FLAG_FILE"
 
-log "Starting \$REVIEWER review"
+log "Starting \$REVIEWER review (timeout=\${REVIEW_TIMEOUT}s)"
 START_TIME=\$(date +%s)
 
 "\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE" &
 REVIEWER_PID=\$!
 TRACKED_PID="\$REVIEWER_PID"
 write_pid "\$TRACKED_PID"
+run_watchdog "\$REVIEWER_PID" &
+WATCHDOG_PID=\$!
 if wait "\$REVIEWER_PID"; then
   REVIEWER_EXIT=0
 else
   REVIEWER_EXIT=\$?
 fi
+stop_watchdog
 
 ELAPSED=\$(( \$(date +%s) - START_TIME ))
+if [ -f "\$TIMEOUT_FLAG_FILE" ]; then
+  log "ERROR: \$REVIEWER review timed out after \${ELAPSED}s (limit \${REVIEW_TIMEOUT}s)"
+  # The dispatcher normally quarantines failed output, but it was killed.
+  # A KILLed dispatcher also leaves its stdout capture behind.
+  if [ -f "\$REVIEW_FILE" ]; then
+    quarantine_partial_artifact "\$REVIEW_FILE"
+  fi
+  STDOUT_CAPTURE="\$REVIEW_FILE.stdout.\$REVIEWER_PID"
+  if [ -s "\$STDOUT_CAPTURE" ]; then
+    quarantine_partial_artifact "\$STDOUT_CAPTURE"
+  else
+    rm -f "\$STDOUT_CAPTURE"
+  fi
+  echo "ERROR: \$REVIEWER review timed out after \${ELAPSED}s (limit \${REVIEW_TIMEOUT}s, set by REVIEW_LOOP_REVIEW_TIMEOUT or review_timeout)" >&2
+  exit 124
+fi
 log "\$REVIEWER finished (exit=\$REVIEWER_EXIT, elapsed=\${ELAPSED}s)"
 exit \$REVIEWER_EXIT
 RUNNER_EOF
@@ -795,15 +1003,38 @@ RUNNER_EOF
     }
 
 
+    rm -f "$TIMEOUT_FLAG_FILE"
+    REVIEW_TIMED_OUT=false
     REVIEW_START_TIME=$(date +%s)
-    if run_review; then
+    if [ "$EFFECTIVE_REVIEW_TIMEOUT" -le 0 ]; then
+      REVIEWER_EXIT=124
+      REVIEW_TIMED_OUT=true
+    elif run_review; then
       REVIEWER_EXIT=0
     else
       REVIEWER_EXIT=$?
     fi
+    # Exit 124 alone is not proof: a reviewer may exit 124 by itself. Only
+    # the flag written by the runner's watchdog marks a timeout.
+    if [ -f "$TIMEOUT_FLAG_FILE" ]; then
+      REVIEW_TIMED_OUT=true
+      rm -f "$TIMEOUT_FLAG_FILE"
+    fi
     REVIEW_ELAPSED=$(( $(date +%s) - REVIEW_START_TIME ))
     log "${REVIEWER} review finished (exit=$REVIEWER_EXIT, elapsed=${REVIEW_ELAPSED}s, review_id=$REVIEW_ID, round=$ROUND)"
-    if [ "$REVIEWER_EXIT" -ne 0 ]; then
+    if [ "$REVIEW_TIMED_OUT" = "true" ]; then
+      log "ERROR: ${REVIEWER} review timed out for round $ROUND (limit ${EFFECTIVE_REVIEW_TIMEOUT}s, configured ${CONFIGURED_REVIEW_TIMEOUT}s)"
+      # The runner quarantines partial output; this only guards against a
+      # failed quarantine, since a timed-out review must never count as PASS.
+      if [ -e "$REVIEW_FILE" ]; then
+        if QUARANTINED_FILE=$("$QUARANTINE_SCRIPT" "$REVIEW_FILE" 2>>"$LOG_FILE"); then
+          log "Quarantined timed-out review artifact: $QUARANTINED_FILE"
+        else
+          log "ERROR: failed to quarantine timed-out review artifact; removing it: $REVIEW_FILE"
+          rm -f "$REVIEW_FILE"
+        fi
+      fi
+    elif [ "$REVIEWER_EXIT" -ne 0 ]; then
       log "ERROR: ${REVIEWER} review failed for round $ROUND"
     fi
 
@@ -817,7 +1048,18 @@ RUNNER_EOF
     fi
 
     log "Prepared ${REVIEWER} review for Claude to address (review_id=$REVIEW_ID)"
-    if review_artifact_is_usable "$REVIEW_FILE"; then
+    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback or continue to the next round"
+    FALLBACK_REASON="Phase 1 complete. Read the review and address the findings."
+    TIMEOUT_SETTINGS="REVIEW_LOOP_REVIEW_TIMEOUT or review_timeout in .review-loop.toml or the user config, resolved when the loop started"
+    if [ "$REVIEW_TIMED_OUT" = "true" ] && [ "$EFFECTIVE_REVIEW_TIMEOUT" -le 0 ]; then
+      REVIEW_STATUS="timed out before it started: the Stop hook had no time left inside its ${HOOK_TIMEOUT}s Claude Code timeout (the review limit of ${CONFIGURED_REVIEW_TIMEOUT}s comes from ${TIMEOUT_SETTINGS}); rerun it with the generated script"
+      SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out: no time left in the ${HOOK_TIMEOUT}s Stop hook (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
+      FALLBACK_REASON="The ${REVIEWER} review timed out before it started. Rerun it: bash ${RUNNER_SCRIPT}"
+    elif [ "$REVIEW_TIMED_OUT" = "true" ]; then
+      REVIEW_STATUS="timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds and was stopped; any partial output was quarantined as ${REVIEW_FILE}.reviewer-error.<n> (the limit comes from ${TIMEOUT_SETTINGS}); rerun it with the generated script"
+      SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out after ${EFFECTIVE_REVIEW_TIMEOUT}s (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
+      FALLBACK_REASON="The ${REVIEWER} review timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds. Rerun it: bash ${RUNNER_SCRIPT}"
+    elif review_artifact_is_usable "$REVIEW_FILE"; then
       log "Review artifact ready (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
       if [ "$REVIEWER_EXIT" -eq 0 ]; then
         REVIEW_STATUS="completed"
@@ -835,10 +1077,9 @@ RUNNER_EOF
       printf '{"decision":"approve"}\n'
       exit 0
     fi
-    SYS_MSG="Review Loop [${REVIEW_ID}] — Phase 2/2: Address ${REVIEWER} review feedback or continue to the next round"
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
-      || printf '{"decision":"block","reason":"Phase 1 complete. Read the review and address the findings.","systemMessage":"%s"}\n' "$SYS_MSG"
+      || printf '{"decision":"block","reason":"%s","systemMessage":"%s"}\n' "$FALLBACK_REASON" "$SYS_MSG"
     ;;
 
   addressing)
@@ -880,7 +1121,7 @@ RUNNER_EOF
               exit 0
             fi
             log "Review round $ROUND failed; re-running reviewer for round $NEXT_ROUND"
-            exec "$STOP_HOOK_SCRIPT" <<< "$HOOK_INPUT"
+            REVIEW_LOOP_HOOK_STARTED_AT="$HOOK_STARTED_AT" exec "$STOP_HOOK_SCRIPT" <<< "$HOOK_INPUT"
           fi
         fi
       else
