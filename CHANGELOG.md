@@ -15,6 +15,8 @@ All notable changes to the review-loop plugin are recorded here.
 - The Stop hook timeout in `hooks/hooks.json` is now 14400 seconds and acts only as a backstop. Before, a review longer than its 600 seconds made Claude Code cancel the hook and discard its output, so the loop ended with nothing logged. The hook now lowers the review limit so the review ends at least 60 seconds before the backstop, and logs a warning when it does (#20).
 - A manual rerun of the generated runner script enforces the same time limit.
 - Legacy state files without `review_timeout` resolve the limit when the hook runs, falling back to the default.
+- The rerun instructions ask Claude to run the generated script with the Bash tool's `run_in_background` option and wait for its completion notification, instead of a 600000ms tool timeout that cut off any review longer than ten minutes. If Claude stops while that rerun is still running, the Stop hook waits for it within its own time budget instead of counting the stop as a missing review, and asks Claude to keep waiting when the budget runs out (#20).
+- The hook no longer ends an active loop silently. Every fail-open approve (retry exhausted, orphaned or malformed state, failed phase transition, internal error, and the rest) carries a `systemMessage` naming the cause and `.claude/review-loop.log`, as do the blocks that end the loop because the reviewer CLI or Codex multi-agent is missing (#20).
 
 ## [2.0.0] - 2026-09-07
 
