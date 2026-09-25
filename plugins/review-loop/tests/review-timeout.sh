@@ -11,17 +11,33 @@ TMP_DIR="$(mktemp -d)"
 BIN_DIR="$TMP_DIR/bin"
 HOME_DIR="$TMP_DIR/home"
 REVIEW_ID="20260925-120000-7e0a11"
+# Watchdog sleeps get durations derived from this run's PID, so a concurrent
+# run of this test is unlikely to match them.
+EXIT124_TIMEOUT=$((3000 + ($$ % 3000) * 3))
+CLEAN_TIMEOUT=$((EXIT124_TIMEOUT + 1))
+SIGNAL_TIMEOUT=$((EXIT124_TIMEOUT + 2))
 BACKGROUND_PID=""
 
+# Only processes that still look like this test's fakes are killed, so a
+# recorded PID that has since been reused by something else is left alone.
 cleanup() {
   set +e
+  local pid_file
+  local pid
+  local command_line
+
   if [ -n "$BACKGROUND_PID" ] && kill -0 "$BACKGROUND_PID" 2>/dev/null; then
-    kill -KILL "$BACKGROUND_PID" 2>/dev/null
+    "$PLUGIN_DIR/scripts/stop-process-tree.sh" "$BACKGROUND_PID" 1 >/dev/null
   fi
   for pid_file in "$TMP_DIR"/*/reviewer.pid "$TMP_DIR"/*/reviewer-child.pid; do
     [ -f "$pid_file" ] || continue
-    kill -KILL "$(cat "$pid_file")" 2>/dev/null
+    pid=$(cat "$pid_file")
+    command_line=$(ps -o args= -p "$pid" 2>/dev/null)
+    case "$command_line" in
+      *"$BIN_DIR/codex"*|"sleep 300") kill -KILL "$pid" 2>/dev/null ;;
+    esac
   done
+  pkill -f "^sleep ($EXIT124_TIMEOUT|$CLEAN_TIMEOUT|$SIGNAL_TIMEOUT|$((EXIT124_TIMEOUT + 3)))\$" 2>/dev/null
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -133,6 +149,29 @@ assert_single_json_decision() {
 
   jq -e -s 'length == 1 and (.[0] | type == "object")' <<< "$output" >/dev/null ||
     fail "hook stdout is not exactly one JSON object: $output"
+}
+
+quarantine_count() {
+  local count=0
+  local file
+
+  for file in "$1"/review-1.md.reviewer-error.*; do
+    [ -f "$file" ] && count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
+# Prints the first quarantined review-1.md artifact containing the text.
+quarantine_containing() {
+  local file
+
+  for file in "$1"/review-1.md.reviewer-error.*; do
+    if [ -f "$file" ] && grep -qF "$2" "$file"; then
+      printf '%s\n' "$file"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # write_state <project> <review_timeout|legacy> [phase] [round]
@@ -340,18 +379,38 @@ assert_rejected "61s under a 120s hook timeout" \
 assert_rejected "the 1800s default under a 120s hook timeout" \
   "$SMALL_PLUGIN/scripts/resolve-review-timeout.sh" "$DEFAULT_PROJECT" "$DEFAULT_HOME"
 
-# An unreadable hooks.json falls back to an assumed 600s hook timeout.
+# Without a readable hooks.json there is no safe bound, so resolution fails
+# and names the file.
 BROKEN_PLUGIN="$TMP_DIR/broken-plugin"
 copy_plugin_with_hook_timeout "$BROKEN_PLUGIN" 14400
 printf 'not json\n' > "$BROKEN_PLUGIN/hooks/hooks.json"
-BROKEN_STDERR="$TMP_DIR/broken-resolver.stderr"
-[ "$(run_resolver "$BROKEN_PLUGIN/scripts/resolve-review-timeout.sh" \
-  "$DEFAULT_PROJECT" "$DEFAULT_HOME" env REVIEW_LOOP_REVIEW_TIMEOUT=540 2>"$BROKEN_STDERR")" = "540" ] ||
-  fail "resolver did not accept 540s with an assumed 600s hook timeout"
-grep -q 'assuming 600s' "$BROKEN_STDERR" || fail "missing hooks.json fallback warning"
-assert_rejected "541s with an assumed 600s hook timeout" \
+assert_rejected "any value with an unreadable hooks.json" \
   "$BROKEN_PLUGIN/scripts/resolve-review-timeout.sh" "$DEFAULT_PROJECT" "$DEFAULT_HOME" \
-  env REVIEW_LOOP_REVIEW_TIMEOUT=541
+  env REVIEW_LOOP_REVIEW_TIMEOUT=60
+BROKEN_ERROR=$(run_resolver "$BROKEN_PLUGIN/scripts/resolve-review-timeout.sh" \
+  "$DEFAULT_PROJECT" "$DEFAULT_HOME" 2>&1 >/dev/null || true)
+assert_contains "$BROKEN_ERROR" "hooks/hooks.json" "unreadable hooks.json error"
+
+# The timeout is read from the stop-hook.sh entry, not from the first entry.
+REORDERED_PLUGIN="$TMP_DIR/reordered-plugin"
+copy_plugin_with_hook_timeout "$REORDERED_PLUGIN" 300
+jq '.hooks.Stop = [{"hooks": [{"type": "command", "command": "/bin/true", "timeout": 5}]}] + .hooks.Stop' \
+  "$REORDERED_PLUGIN/hooks/hooks.json" > "$TMP_DIR/reordered-hooks.json"
+mv "$TMP_DIR/reordered-hooks.json" "$REORDERED_PLUGIN/hooks/hooks.json"
+[ "$("$REORDERED_PLUGIN/scripts/read-hook-timeout.sh")" = "300" ] ||
+  fail "hook timeout was not read from the stop-hook.sh entry"
+
+# A config file that cannot be read stops resolution instead of being skipped.
+UNREADABLE_PROJECT="$TMP_DIR/resolver-unreadable-project"
+mkdir -p "$UNREADABLE_PROJECT"
+printf 'review_timeout = 900\n' > "$UNREADABLE_PROJECT/.review-loop.toml"
+chmod 000 "$UNREADABLE_PROJECT/.review-loop.toml"
+if [ -r "$UNREADABLE_PROJECT/.review-loop.toml" ]; then
+  printf 'skipping the unreadable config case: permissions are not enforced\n'
+else
+  assert_rejected "an unreadable project config" "$RESOLVER" "$UNREADABLE_PROJECT" "$PROJECT_ONLY_HOME"
+fi
+chmod 644 "$UNREADABLE_PROJECT/.review-loop.toml"
 
 # ── Setup stores the resolved value and rejects invalid ones ──────────────
 SETUP_PROJECT="$TMP_DIR/setup-project"
@@ -423,13 +482,12 @@ assert_not_contains "$HANG_LOG" "capped" "log"
 
 assert_not_running "$(cat "$HANG_PROJECT/reviewer.pid")" "hung reviewer"
 assert_not_running "$(cat "$HANG_PROJECT/reviewer-child.pid")" "hung reviewer's child"
-assert_no_process_matching '^sleep 2$'
 [ ! -e "$HANG_PROJECT/.claude/review-loop-child.pid" ] || fail "child PID file left behind"
 [ ! -e "$HANG_PROJECT/.claude/review-loop-timed-out" ] || fail "timeout flag left behind"
 [ ! -e "$HANG_REVIEW_DIR/review-1.md" ] || fail "partial review left at the canonical path"
-[ -f "$HANG_REVIEW_DIR/review-1.md.reviewer-error.1" ] || fail "partial review was not quarantined"
-[ "$(head -n 1 "$HANG_REVIEW_DIR/review-1.md.reviewer-error.1")" = "VERDICT: PASS" ] ||
-  fail "quarantined artifact is not the partial review"
+quarantine_containing "$HANG_REVIEW_DIR" "partial review written before the hang" >/dev/null ||
+  fail "partial review was not quarantined"
+HANG_QUARANTINE_COUNT=$(quarantine_count "$HANG_REVIEW_DIR")
 if compgen -G "$HANG_REVIEW_DIR/review-1.md.stdout.*" >/dev/null; then
   fail "stdout capture left in the review directory"
 fi
@@ -455,17 +513,23 @@ assert_contains "$RERUN_STDERR" "REVIEW_LOOP_REVIEW_TIMEOUT" "manual rerun stder
 assert_not_running "$(cat "$HANG_PROJECT/reviewer.pid")" "rerun reviewer"
 assert_not_running "$(cat "$HANG_PROJECT/reviewer-child.pid")" "rerun reviewer's child"
 [ ! -e "$HANG_REVIEW_DIR/review-1.md" ] || fail "manual rerun left a partial review"
+[ "$(quarantine_count "$HANG_REVIEW_DIR")" -gt "$HANG_QUARANTINE_COUNT" ] ||
+  fail "manual rerun did not quarantine its partial review"
 [ -f "$HANG_REVIEW_DIR/review-1.md.reviewer-error.1" ] || fail "first quarantine was overwritten"
-[ -f "$HANG_REVIEW_DIR/review-1.md.reviewer-error.2" ] || fail "manual rerun did not quarantine"
 [ ! -e "$HANG_PROJECT/.claude/review-loop-child.pid" ] || fail "manual rerun left its PID file"
 [ -f "$HANG_PROJECT/.claude/review-loop-timed-out" ] || fail "manual rerun did not record the timeout"
 
 # The retry gate then fails open without a PASS and cleans every runtime file.
 FINAL_OUTPUT=$(run_hook "$HANG_PROJECT" "$HOOK")
 jq -e '.decision == "approve"' <<< "$FINAL_OUTPUT" >/dev/null || fail "retry gate did not fail open"
+assert_single_json_decision "$FINAL_OUTPUT"
+assert_contains "$(jq -r '.systemMessage' <<< "$FINAL_OUTPUT")" "timed out after 2s on the rerun" \
+  "fail-open systemMessage"
+grep -q 'ERROR: the last codex run timed out (limit 2s' "$HANG_PROJECT/.claude/review-loop.log" ||
+  fail "rerun timeout was not logged by the retry gate"
 [ ! -e "$HANG_PROJECT/.claude/review-loop.local.json" ] || fail "state left after fail-open"
 [ ! -e "$HANG_PROJECT/.claude/review-loop-timed-out" ] || fail "timeout flag left after cleanup"
-[ -f "$HANG_REVIEW_DIR/review-1.md.reviewer-error.2" ] || fail "review history was removed"
+[ -f "$HANG_REVIEW_DIR/review-1.md.reviewer-error.1" ] || fail "review history was removed"
 
 # ── A reviewer that ignores TERM is KILLed after the grace period ─────────
 STUBBORN_PROJECT="$TMP_DIR/stubborn"
@@ -483,10 +547,12 @@ assert_not_running "$(cat "$STUBBORN_PROJECT/reviewer-child.pid")" "TERM-ignorin
 if compgen -G "$STUBBORN_PROJECT/reviews/$REVIEW_ID/review-1.md.stdout.*" >/dev/null; then
   fail "stdout capture of a KILLed dispatcher left in the review directory"
 fi
+quarantine_containing "$STUBBORN_PROJECT/reviews/$REVIEW_ID" "partial stdout before the hang" >/dev/null ||
+  fail "partial stdout was not quarantined"
 
 # ── A reviewer that exits 124 by itself is not a timeout ──────────────────
 EXIT124_PROJECT="$TMP_DIR/exit-124"
-write_state "$EXIT124_PROJECT" 3187
+write_state "$EXIT124_PROJECT" "$EXIT124_TIMEOUT"
 EXIT124_OUTPUT=$(run_hook "$EXIT124_PROJECT" "$HOOK" FAKE_REVIEW_MODE=exit-124)
 assert_single_json_decision "$EXIT124_OUTPUT"
 jq -e '.decision == "block"' <<< "$EXIT124_OUTPUT" >/dev/null || fail "exit 124 did not block"
@@ -500,25 +566,25 @@ assert_not_contains "$EXIT124_LOG" "watchdog" "log"
 [ -f "$EXIT124_PROJECT/reviews/$REVIEW_ID/review-1.md.reviewer-error.1" ] ||
   fail "exit-124 artifact was not quarantined as a reviewer error"
 [ ! -e "$EXIT124_PROJECT/.claude/review-loop-timed-out" ] || fail "exit 124 wrote a timeout flag"
-assert_no_process_matching '^sleep 3187$'
+assert_no_process_matching "^sleep $EXIT124_TIMEOUT\$"
 
 # ── A reviewer that finishes first stops the watchdog and its sleep ───────
 CLEAN_PROJECT="$TMP_DIR/clean"
-write_state "$CLEAN_PROJECT" 3181
+write_state "$CLEAN_PROJECT" "$CLEAN_TIMEOUT"
 CLEAN_OUTPUT=$(run_hook "$CLEAN_PROJECT" "$HOOK" FAKE_REVIEW_MODE=clean)
 assert_single_json_decision "$CLEAN_OUTPUT"
 assert_contains "$(jq -r '.reason' <<< "$CLEAN_OUTPUT")" "round 1 completed" "clean reason"
 [ "$(head -n 1 "$CLEAN_PROJECT/reviews/$REVIEW_ID/review-1.md")" = "VERDICT: PASS" ] ||
   fail "clean review was not captured"
-grep -q "^REVIEW_TIMEOUT='3181'$" "$CLEAN_PROJECT/.claude/review-loop-run-codex.sh" ||
+grep -q "^REVIEW_TIMEOUT='$CLEAN_TIMEOUT'$" "$CLEAN_PROJECT/.claude/review-loop-run-codex.sh" ||
   fail "runner does not carry the configured timeout"
-assert_no_process_matching '^sleep 3181$'
+assert_no_process_matching "^sleep $CLEAN_TIMEOUT\$"
 
 # ── A signal to the runner stops the reviewer and the watchdog ────────────
 SIGNAL_PROJECT="$TMP_DIR/signal"
-write_state "$SIGNAL_PROJECT" 3183 addressing
+write_state "$SIGNAL_PROJECT" "$SIGNAL_TIMEOUT" addressing
 cp "$CLEAN_PROJECT/.claude/review-loop-codex-prompt.txt" "$SIGNAL_PROJECT/.claude/"
-sed -e "s|^REVIEW_TIMEOUT='3181'$|REVIEW_TIMEOUT='3183'|" \
+sed -e "s|^REVIEW_TIMEOUT='$CLEAN_TIMEOUT'$|REVIEW_TIMEOUT='$SIGNAL_TIMEOUT'|" \
   -e "s|$CLEAN_PROJECT|$SIGNAL_PROJECT|g" \
   "$CLEAN_PROJECT/.claude/review-loop-run-codex.sh" > "$SIGNAL_PROJECT/.claude/review-loop-run-codex.sh"
 chmod +x "$SIGNAL_PROJECT/.claude/review-loop-run-codex.sh"
@@ -542,7 +608,7 @@ BACKGROUND_PID=""
 [ "$SIGNAL_STATUS" -eq 143 ] || fail "signalled runner exited $SIGNAL_STATUS instead of 143"
 assert_not_running "$(cat "$SIGNAL_PROJECT/reviewer.pid")" "reviewer of a signalled runner"
 assert_not_running "$(cat "$SIGNAL_PROJECT/reviewer-child.pid")" "reviewer child of a signalled runner"
-assert_no_process_matching '^sleep 3183$'
+assert_no_process_matching "^sleep $SIGNAL_TIMEOUT\$"
 [ ! -e "$SIGNAL_PROJECT/.claude/review-loop-child.pid" ] || fail "signalled runner left its PID file"
 [ ! -e "$SIGNAL_PROJECT/.claude/review-loop-timed-out" ] || fail "a signal was recorded as a timeout"
 grep -q 'review runner received a termination signal' "$SIGNAL_PROJECT/.claude/review-loop.log" ||
@@ -550,21 +616,23 @@ grep -q 'review runner received a termination signal' "$SIGNAL_PROJECT/.claude/r
 
 # ── The hooks.json timeout caps the configured limit ──────────────────────
 CAPPED_PLUGIN="$TMP_DIR/capped-plugin"
-copy_plugin_with_hook_timeout "$CAPPED_PLUGIN" 63
+copy_plugin_with_hook_timeout "$CAPPED_PLUGIN" 70
 CAPPED_PROJECT="$TMP_DIR/capped"
 write_state "$CAPPED_PROJECT" 1800
 CAPPED_OUTPUT=$(run_hook "$CAPPED_PROJECT" "$CAPPED_PLUGIN/hooks/stop-hook.sh" FAKE_REVIEW_MODE=hang)
 CAPPED_LIMIT=$(logged_effective_timeout "$CAPPED_PROJECT")
 case "$CAPPED_LIMIT" in
-  1|2|3) ;;
-  *) fail "unexpected effective timeout under a 63s hook timeout: '$CAPPED_LIMIT'" ;;
+  1|2|3|4|5|6|7|8|9|10) ;;
+  *) fail "unexpected effective timeout under a 70s hook timeout: '$CAPPED_LIMIT'" ;;
 esac
 CAPPED_LOG=$(cat "$CAPPED_PROJECT/.claude/review-loop.log")
-assert_contains "$CAPPED_LOG" "hook_timeout=63s" "log"
+assert_contains "$CAPPED_LOG" "hook_timeout=70s" "log"
 assert_contains "$CAPPED_LOG" "WARN: review timeout capped from 1800s to ${CAPPED_LIMIT}s" "log"
 assert_contains "$CAPPED_LOG" "(limit ${CAPPED_LIMIT}s)" "log"
-grep -q "^REVIEW_TIMEOUT='${CAPPED_LIMIT}'$" "$CAPPED_PROJECT/.claude/review-loop-run-codex.sh" ||
-  fail "runner does not carry the capped timeout"
+assert_contains "$CAPPED_LOG" "Starting codex review (timeout=${CAPPED_LIMIT}s)" "log"
+# The script keeps the configured limit for manual reruns outside the hook.
+grep -q "^REVIEW_TIMEOUT='1800'$" "$CAPPED_PROJECT/.claude/review-loop-run-codex.sh" ||
+  fail "runner does not carry the configured timeout"
 assert_single_json_decision "$CAPPED_OUTPUT"
 assert_contains "$(jq -r '.systemMessage' <<< "$CAPPED_OUTPUT")" "timed out after ${CAPPED_LIMIT}s" "capped systemMessage"
 assert_not_running "$(cat "$CAPPED_PROJECT/reviewer.pid")" "capped reviewer"
@@ -590,14 +658,14 @@ jq -e '.phase == "addressing"' "$EXHAUSTED_PROJECT/.claude/review-loop.local.jso
 
 # ── The start time survives the FAIL → next round re-exec ─────────────────
 INHERIT_PLUGIN="$TMP_DIR/inherit-plugin"
-copy_plugin_with_hook_timeout "$INHERIT_PLUGIN" 75
+copy_plugin_with_hook_timeout "$INHERIT_PLUGIN" 90
 INHERIT_PROJECT="$TMP_DIR/inherit"
 write_state "$INHERIT_PROJECT" 1800
 run_hook "$INHERIT_PROJECT" "$INHERIT_PLUGIN/hooks/stop-hook.sh" \
   FAKE_REVIEW_MODE=clean REVIEW_LOOP_HOOK_STARTED_AT="$(( $(date +%s) - 10 ))" >/dev/null
 INHERITED_LIMIT=$(logged_effective_timeout "$INHERIT_PROJECT")
 case "$INHERITED_LIMIT" in
-  4|5) ;;
+  12|13|14|15|16|17|18|19|20) ;;
   *) fail "inherited start time was not honored (effective '$INHERITED_LIMIT')" ;;
 esac
 grep -q 'start time: inherited from the re-executed hook' "$INHERIT_PROJECT/.claude/review-loop.log" ||
@@ -611,6 +679,18 @@ grep -q 'WARN: ignoring REVIEW_LOOP_HOOK_STARTED_AT=.* in the future' \
   "$FUTURE_PROJECT/.claude/review-loop.log" || fail "future start time was not rejected"
 grep -q 'start time: this invocation' "$FUTURE_PROJECT/.claude/review-loop.log" ||
   fail "hook did not fall back to its own start time"
+
+for bad_start in 0123 12x 1234567890123; do
+  BAD_START_PROJECT="$TMP_DIR/bad-start-$bad_start"
+  write_state "$BAD_START_PROJECT" 1800
+  BAD_START_OUTPUT=$(run_hook "$BAD_START_PROJECT" "$HOOK" FAKE_REVIEW_MODE=clean \
+    REVIEW_LOOP_HOOK_STARTED_AT="$bad_start")
+  assert_single_json_decision "$BAD_START_OUTPUT"
+  jq -e '.decision == "block"' <<< "$BAD_START_OUTPUT" >/dev/null ||
+    fail "REVIEW_LOOP_HOOK_STARTED_AT=$bad_start broke the review"
+  grep -q "WARN: ignoring REVIEW_LOOP_HOOK_STARTED_AT=$bad_start" "$BAD_START_PROJECT/.claude/review-loop.log" ||
+    fail "REVIEW_LOOP_HOOK_STARTED_AT=$bad_start was not rejected"
+done
 
 EXEC_PROJECT="$TMP_DIR/exec"
 write_state "$EXEC_PROJECT" 1800 addressing 1
@@ -650,5 +730,84 @@ for malformed in '"1800"' 0 1.5 -3; do
   [ ! -e "$MALFORMED_PROJECT/.claude/review-loop.local.json" ] ||
     fail "malformed review_timeout $malformed left state behind"
 done
+
+# Integral numbers in other notations: depending on the jq version they are
+# printed as a plain integer (a normal review) or not (fail open), but never
+# break the hook.
+NOTATION_PROJECT="$TMP_DIR/notation"
+for notation in 1800.0 1e3; do
+  write_state "$NOTATION_PROJECT" "$notation"
+  PRINTED=$(jq -r '.review_timeout' "$NOTATION_PROJECT/.claude/review-loop.local.json")
+  NOTATION_OUTPUT=$(run_hook "$NOTATION_PROJECT" "$HOOK" FAKE_REVIEW_MODE=clean)
+  assert_single_json_decision "$NOTATION_OUTPUT"
+  case "$PRINTED" in
+    *[!0-9]*)
+      jq -e '.decision == "approve"' <<< "$NOTATION_OUTPUT" >/dev/null ||
+        fail "review_timeout $notation (printed $PRINTED) did not fail open"
+      grep -q "review_timeout in state is not a plain positive integer: $PRINTED" \
+        "$NOTATION_PROJECT/.claude/review-loop.log" || fail "review_timeout $notation was not logged"
+      ;;
+    *)
+      jq -e '.decision == "block"' <<< "$NOTATION_OUTPUT" >/dev/null ||
+        fail "review_timeout $notation (printed $PRINTED) did not run the review"
+      ;;
+  esac
+  rm -rf "$NOTATION_PROJECT"
+done
+
+# ── stop-process-tree.sh ──────────────────────────────────────────────────
+STOP_TREE="$PLUGIN_DIR/scripts/stop-process-tree.sh"
+STOP_STATUS=0
+"$STOP_TREE" abc 1 >/dev/null 2>&1 || STOP_STATUS=$?
+[ "$STOP_STATUS" -eq 2 ] || fail "stop-process-tree.sh accepted an invalid pid (status $STOP_STATUS)"
+STOP_STATUS=0
+"$STOP_TREE" 12345 x >/dev/null 2>&1 || STOP_STATUS=$?
+[ "$STOP_STATUS" -eq 2 ] || fail "stop-process-tree.sh accepted an invalid grace (status $STOP_STATUS)"
+
+sleep 1 &
+FINISHED_PID=$!
+wait "$FINISHED_PID"
+STOP_STATUS=0
+"$STOP_TREE" "$FINISHED_PID" 1 >/dev/null || STOP_STATUS=$?
+[ "$STOP_STATUS" -eq 3 ] || fail "stop-process-tree.sh signalled a finished process (status $STOP_STATUS)"
+
+# A TERM-ignoring process that keeps forking during the grace period must
+# not leave any child behind.
+FORKER_DIR="$TMP_DIR/forker"
+mkdir -p "$FORKER_DIR"
+FORK_SLEEP=$((EXIT124_TIMEOUT + 3))
+bash -c "trap '' TERM; while :; do sleep $FORK_SLEEP & echo \$! >> '$FORKER_DIR/children'; sleep 0.1; done" &
+BACKGROUND_PID=$!
+sleep 0.5
+FORKER_OUTPUT=$("$STOP_TREE" "$BACKGROUND_PID" 1)
+wait "$BACKGROUND_PID" 2>/dev/null || true
+BACKGROUND_PID=""
+assert_contains "$FORKER_OUTPUT" "escalated to KILL" "stop-process-tree.sh output"
+while IFS= read -r forked_pid; do
+  assert_not_running "$forked_pid" "child forked during the grace period"
+done < "$FORKER_DIR/children"
+assert_no_process_matching "^sleep $FORK_SLEEP\$"
+
+# ── quarantine-review-artifact.sh ─────────────────────────────────────────
+QUARANTINE="$PLUGIN_DIR/scripts/quarantine-review-artifact.sh"
+QUARANTINE_DIR="$TMP_DIR/quarantine"
+mkdir -p "$QUARANTINE_DIR"
+QUARANTINE_STATUS=0
+"$QUARANTINE" >/dev/null 2>&1 || QUARANTINE_STATUS=$?
+[ "$QUARANTINE_STATUS" -eq 2 ] || fail "quarantine without arguments exited $QUARANTINE_STATUS"
+QUARANTINE_STATUS=0
+"$QUARANTINE" "$QUARANTINE_DIR/review-1.md" >/dev/null 2>&1 || QUARANTINE_STATUS=$?
+[ "$QUARANTINE_STATUS" -eq 1 ] || fail "quarantine of a missing file exited $QUARANTINE_STATUS"
+printf 'existing\n' > "$QUARANTINE_DIR/review-1.md.reviewer-error.1"
+printf 'review\n' > "$QUARANTINE_DIR/review-1.md"
+printf 'capture\n' > "$QUARANTINE_DIR/capture"
+[ "$("$QUARANTINE" "$QUARANTINE_DIR/review-1.md")" = "$QUARANTINE_DIR/review-1.md.reviewer-error.2" ] ||
+  fail "quarantine did not take the next free number"
+[ "$("$QUARANTINE" "$QUARANTINE_DIR/review-1.md" "$QUARANTINE_DIR/capture")" = \
+  "$QUARANTINE_DIR/review-1.md.reviewer-error.3" ] || fail "quarantine of a second source did not continue the numbering"
+[ "$(cat "$QUARANTINE_DIR/review-1.md.reviewer-error.1")" = "existing" ] ||
+  fail "quarantine overwrote an earlier artifact"
+[ ! -e "$QUARANTINE_DIR/review-1.md" ] && [ ! -e "$QUARANTINE_DIR/capture" ] ||
+  fail "quarantine left its source behind"
 
 printf 'review timeout tests passed\n'

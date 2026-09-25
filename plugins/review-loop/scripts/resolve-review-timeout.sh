@@ -11,16 +11,17 @@
 set -euo pipefail
 
 DEFAULT_REVIEW_TIMEOUT=1800
-FALLBACK_HOOK_TIMEOUT=600
 HOOK_TIMEOUT_MARGIN_SECONDS=60
 PROJECT_CONFIG=".review-loop.toml"
 USER_CONFIG="${XDG_CONFIG_HOME:-${HOME:-$PWD}/.config}/review-loop/config.toml"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Without the hook timeout there is no safe upper bound, so setup stops here
+# instead of guessing one.
 if ! HOOK_TIMEOUT=$("$SCRIPT_DIR/read-hook-timeout.sh"); then
-  printf 'Warning: could not read the Stop hook timeout; assuming %ss.\n' \
-    "$FALLBACK_HOOK_TIMEOUT" >&2
-  HOOK_TIMEOUT="$FALLBACK_HOOK_TIMEOUT"
+  printf 'Error: cannot validate review_timeout without the Stop hook timeout; check %s.\n' \
+    "$(cd "$SCRIPT_DIR/.." && pwd)/hooks/hooks.json" >&2
+  exit 1
 fi
 MAX_REVIEW_TIMEOUT=$((HOOK_TIMEOUT - HOOK_TIMEOUT_MARGIN_SECONDS))
 
@@ -52,7 +53,7 @@ read_config_review_timeout() {
       ;;
     *)
       printf 'Error: failed to read review_timeout from %s.\n' "$config_file" >&2
-      return 1
+      return 2
       ;;
   esac
 }
@@ -78,10 +79,26 @@ validate_review_timeout() {
 
 if [ "${REVIEW_LOOP_REVIEW_TIMEOUT+x}" = x ]; then
   validate_review_timeout "$REVIEW_LOOP_REVIEW_TIMEOUT" "REVIEW_LOOP_REVIEW_TIMEOUT"
-elif [ -f "$PROJECT_CONFIG" ] && PROJECT_REVIEW_TIMEOUT=$(read_config_review_timeout "$PROJECT_CONFIG"); then
-  validate_review_timeout "$PROJECT_REVIEW_TIMEOUT" "$PROJECT_CONFIG review_timeout"
-elif [ -f "$USER_CONFIG" ] && USER_REVIEW_TIMEOUT=$(read_config_review_timeout "$USER_CONFIG"); then
-  validate_review_timeout "$USER_REVIEW_TIMEOUT" "$USER_CONFIG review_timeout"
-else
-  validate_review_timeout "$DEFAULT_REVIEW_TIMEOUT" "the default review_timeout"
+  exit 0
 fi
+
+# A config file that cannot be read stops resolution; it is never skipped in
+# favour of the next source.
+for config_file in "$PROJECT_CONFIG" "$USER_CONFIG"; do
+  [ -f "$config_file" ] || continue
+  read_status=0
+  config_value=$(read_config_review_timeout "$config_file") || read_status=$?
+  case "$read_status" in
+    0)
+      validate_review_timeout "$config_value" "$config_file review_timeout"
+      exit 0
+      ;;
+    1)
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+done
+
+validate_review_timeout "$DEFAULT_REVIEW_TIMEOUT" "the default review_timeout"

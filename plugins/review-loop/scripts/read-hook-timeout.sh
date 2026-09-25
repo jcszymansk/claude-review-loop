@@ -11,8 +11,13 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! hook_timeout=$(jq -er '.hooks.Stop[0].hooks[0].timeout' "$HOOKS_FILE" 2>/dev/null); then
-  printf 'Error: failed to read .hooks.Stop[0].hooks[0].timeout from %s.\n' "$HOOKS_FILE" >&2
+# Selected by command rather than position, so adding another Stop hook entry
+# cannot silently change which timeout is read.
+if ! hook_timeout=$(jq -er '
+  [.hooks.Stop[]?.hooks[]? | select((.command // "") | endswith("/hooks/stop-hook.sh")) | .timeout]
+  | if length == 1 then .[0] else error("expected exactly one stop-hook.sh entry") end
+' "$HOOKS_FILE" 2>/dev/null); then
+  printf 'Error: failed to read the stop-hook.sh timeout from %s.\n' "$HOOKS_FILE" >&2
   exit 1
 fi
 

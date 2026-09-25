@@ -60,7 +60,20 @@ if [ -z "$REVIEW_FILE" ]; then
 fi
 
 OUTPUT_FILE="${REVIEW_FILE}.stdout.$$"
-trap 'rm -f "$OUTPUT_FILE"' EXIT
+# Every normal path below moves or removes the capture before exiting, so a
+# capture still present here belongs to a run that was interrupted (for
+# example stopped by the runner's timeout watchdog). Its partial output is
+# kept as a numbered reviewer-error file.
+# shellcheck disable=SC2329 # invoked by the EXIT trap
+keep_interrupted_capture() {
+  if [ -s "$OUTPUT_FILE" ]; then
+    "$SCRIPT_DIR/quarantine-review-artifact.sh" "$REVIEW_FILE" "$OUTPUT_FILE" >/dev/null 2>&1 ||
+      rm -f "$OUTPUT_FILE"
+  else
+    rm -f "$OUTPUT_FILE"
+  fi
+}
+trap keep_interrupted_capture EXIT
 
 set +e
 if [ "$DEBUG_ENABLED" = "1" ]; then

@@ -29,12 +29,13 @@ HOOK_START_SOURCE="this invocation"
 HOOK_START_WARNING=""
 if [ -n "${REVIEW_LOOP_HOOK_STARTED_AT:-}" ]; then
   case "$REVIEW_LOOP_HOOK_STARTED_AT" in
-    *[!0-9]*)
-      HOOK_START_WARNING="ignoring non-numeric REVIEW_LOOP_HOOK_STARTED_AT=${REVIEW_LOOP_HOOK_STARTED_AT}"
+    0*|*[!0-9]*)
+      HOOK_START_WARNING="ignoring REVIEW_LOOP_HOOK_STARTED_AT=${REVIEW_LOOP_HOOK_STARTED_AT} because it is not a positive integer without leading zeros"
       ;;
     *)
-      if [ "${#REVIEW_LOOP_HOOK_STARTED_AT}" -le 12 ] &&
-        [ "$REVIEW_LOOP_HOOK_STARTED_AT" -le "$HOOK_STARTED_AT" ]; then
+      if [ "${#REVIEW_LOOP_HOOK_STARTED_AT}" -gt 12 ]; then
+        HOOK_START_WARNING="ignoring REVIEW_LOOP_HOOK_STARTED_AT=${REVIEW_LOOP_HOOK_STARTED_AT} because it is out of range"
+      elif [ "$REVIEW_LOOP_HOOK_STARTED_AT" -le "$HOOK_STARTED_AT" ]; then
         HOOK_STARTED_AT="$REVIEW_LOOP_HOOK_STARTED_AT"
         HOOK_START_SOURCE="inherited from the re-executed hook"
       else
@@ -249,6 +250,16 @@ fi
 if [ "$CONFIGURED_REVIEW_TIMEOUT" = "null" ]; then
   CONFIGURED_REVIEW_TIMEOUT=""
 fi
+# jq accepts 1800.0 or 1e3 as integral numbers but prints them in a form
+# that shell arithmetic rejects.
+case "$CONFIGURED_REVIEW_TIMEOUT" in
+  0*|*[!0-9]*)
+    log "ERROR: review_timeout in state is not a plain positive integer: $CONFIGURED_REVIEW_TIMEOUT"
+    cleanup_runtime_files
+    printf '{"decision":"approve"}\n'
+    exit 0
+    ;;
+esac
 TASK_DIFF_FILE=""
 REVIEW_SCOPE="local branch diff"
 
@@ -823,13 +834,10 @@ Then run /review-loop again."
 
     resolve_configured_review_timeout
     compute_effective_review_timeout
-    # A manual rerun through the retry gate runs outside this hook, so when
-    # the hook budget is already spent the runner keeps the configured limit.
-    RUNNER_REVIEW_TIMEOUT="$EFFECTIVE_REVIEW_TIMEOUT"
-    if [ "$RUNNER_REVIEW_TIMEOUT" -le 0 ]; then
-      RUNNER_REVIEW_TIMEOUT="$CONFIGURED_REVIEW_TIMEOUT"
-    fi
 
+    # The runner carries the configured limit because Claude may rerun it by
+    # hand through the retry gate, outside this hook's budget. The hook passes
+    # its lower effective limit in REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT.
     cat > "$RUNNER_SCRIPT" << RUNNER_EOF
 #!/usr/bin/env bash
 LOG_FILE=".claude/review-loop.log"
@@ -842,10 +850,10 @@ DISPATCHER_SCRIPT='${REVIEWER_DISPATCHER}'
 STOP_TREE_SCRIPT='${STOP_TREE_SCRIPT}'
 QUARANTINE_SCRIPT='${QUARANTINE_SCRIPT}'
 TIMEOUT_FLAG_FILE='${TIMEOUT_FLAG_FILE}'
-REVIEW_TIMEOUT='${RUNNER_REVIEW_TIMEOUT}'
+REVIEW_TIMEOUT='${CONFIGURED_REVIEW_TIMEOUT}'
 TERM_GRACE_SECONDS=5
+WATCHDOG_TIMEOUT_STATUS=124
 PID_FILE=".claude/review-loop-child.pid"
-RUNNER_PID="\$\$"
 TRACKED_PID="\$\$"
 REVIEWER_PID=""
 WATCHDOG_PID=""
@@ -871,50 +879,75 @@ log_lines() {
   done
 }
 
-# Runs in a background subshell. The TERM trap kills the sleep so a stopped
-# watchdog never leaves it behind; the runner also stops the whole watchdog
-# tree, which covers a TERM that lands before the sleep PID is known.
+# Runs in a background subshell and exits with WATCHDOG_TIMEOUT_STATUS only
+# after it has signalled a reviewer that was still running. A TERM before
+# that point stops it quietly: the trap kills the sleep, and the flag covers
+# a TERM that lands before the sleep PID is known.
 run_watchdog() {
   local target_pid="\$1"
   local sleep_pid=""
-  local target_parent
+  local watchdog_stopped=""
+  local target_group
+  local stop_status
 
-  trap 'if [ -n "\$sleep_pid" ]; then kill "\$sleep_pid" 2>/dev/null; fi; exit 0' TERM INT HUP
+  trap 'watchdog_stopped=1; if [ -n "\$sleep_pid" ]; then kill "\$sleep_pid" 2>/dev/null; fi' TERM HUP
   sleep "\$REVIEW_TIMEOUT" &
   sleep_pid=\$!
-  if ! wait "\$sleep_pid"; then
+  if [ -z "\$watchdog_stopped" ]; then
+    wait "\$sleep_pid"
+  fi
+  if [ -n "\$watchdog_stopped" ]; then
+    kill "\$sleep_pid" 2>/dev/null
     exit 0
   fi
+  # From here on the escalation must finish even if the runner tries to
+  # stop the watchdog, or a reviewer ignoring TERM would never get KILL.
+  trap '' TERM HUP
 
-  # The PID may have been reused if the runner died without stopping this
-  # watchdog; only a reviewer that is still the runner's child is ours.
-  target_parent=\$(ps -o ppid= -p "\$target_pid" 2>/dev/null | tr -d ' ')
-  if [ "\$target_parent" != "\$RUNNER_PID" ]; then
-    log "WARN: review watchdog fired, but pid \$target_pid is no longer a child of runner \$RUNNER_PID; nothing to stop"
+  # The reviewer leads its own process group. A PID that no longer leads
+  # that group was reused after the reviewer ended.
+  target_group=\$(ps -o pgid= -p "\$target_pid" 2>/dev/null | tr -d ' ')
+  if [ -n "\$target_group" ] && [ "\$target_group" != "\$target_pid" ]; then
+    log "WARN: review watchdog fired, but pid \$target_pid is no longer the reviewer; nothing to stop"
     exit 0
   fi
-  printf '%s\n' "\$REVIEW_TIMEOUT" > "\$TIMEOUT_FLAG_FILE"
   log "ERROR: review watchdog fired after \${REVIEW_TIMEOUT}s; stopping the \$REVIEWER process tree (pid=\$target_pid, TERM grace \${TERM_GRACE_SECONDS}s)"
-  "\$STOP_TREE_SCRIPT" "\$target_pid" "\$TERM_GRACE_SECONDS" | log_lines "review watchdog: "
+  "\$STOP_TREE_SCRIPT" "\$target_pid" "\$TERM_GRACE_SECONDS" 2>&1 | log_lines "review watchdog: "
+  stop_status=\${PIPESTATUS[0]}
+  if [ "\$stop_status" -eq 3 ]; then
+    log "review watchdog: the reviewer finished just before the limit; not a timeout"
+    exit 0
+  fi
+  exit "\$WATCHDOG_TIMEOUT_STATUS"
 }
 
-# Once the watchdog has fired it is left to finish, so a reviewer process
-# that ignores TERM still gets KILLed.
+# Waits for the watchdog and stores its exit status in WATCHDOG_STATUS. A
+# watchdog that is still sleeping stops quietly; one that has fired finishes
+# its escalation first. This must not run in a subshell, which cannot wait
+# for the runner's children.
 stop_watchdog() {
+  WATCHDOG_STATUS=0
   [ -n "\$WATCHDOG_PID" ] || return 0
-  if [ ! -f "\$TIMEOUT_FLAG_FILE" ]; then
-    "\$STOP_TREE_SCRIPT" "\$WATCHDOG_PID" 1 >/dev/null 2>&1
-  fi
-  wait "\$WATCHDOG_PID" 2>/dev/null
+  kill -TERM "\$WATCHDOG_PID" 2>/dev/null
+  wait "\$WATCHDOG_PID" 2>/dev/null || WATCHDOG_STATUS=\$?
   WATCHDOG_PID=""
 }
 
+# \$! covers a signal that arrives after a fork but before its PID was saved.
 handle_runner_signal() {
+  local last_background="\$!"
+
   log "WARN: review runner received a termination signal; stopping \$REVIEWER and the watchdog"
+  if [ -z "\$REVIEWER_PID" ]; then
+    REVIEWER_PID="\$last_background"
+  elif [ -z "\$WATCHDOG_PID" ] && [ -n "\$last_background" ] && [ "\$last_background" != "\$REVIEWER_PID" ]; then
+    WATCHDOG_PID="\$last_background"
+  fi
   stop_watchdog
   if [ -n "\$REVIEWER_PID" ]; then
     "\$STOP_TREE_SCRIPT" "\$REVIEWER_PID" "\$TERM_GRACE_SECONDS" | log_lines "review runner: "
   fi
+  log "review runner stopped (watchdog status \$WATCHDOG_STATUS)"
   exit 143
 }
 
@@ -925,22 +958,27 @@ quarantine_partial_artifact() {
   if quarantine_file=\$("\$QUARANTINE_SCRIPT" "\$REVIEW_FILE" "\$source_file"); then
     log "Quarantined partial review artifact after timeout: \$quarantine_file"
   else
-    log "ERROR: failed to quarantine partial review artifact: \$source_file"
+    log "ERROR: failed to quarantine partial review artifact; removing it: \$source_file"
     rm -f "\$source_file"
   fi
 }
 
+# A signal that bash ignored on entry (SIGINT for a background job) cannot
+# be trapped, so only TERM and HUP are handled.
 trap clear_pid EXIT
-trap handle_runner_signal TERM INT HUP
+trap handle_runner_signal TERM HUP
 write_pid "\$TRACKED_PID"
 if [ ! -f "\$PROMPT_FILE" ]; then
   echo "ERROR: prompt file missing: \$PROMPT_FILE" >&2
   exit 1
 fi
-if [ ! -x "\$DISPATCHER_SCRIPT" ]; then
-  echo "ERROR: reviewer dispatcher missing: \$DISPATCHER_SCRIPT" >&2
-  exit 1
-fi
+for required_script in "\$DISPATCHER_SCRIPT" "\$STOP_TREE_SCRIPT" "\$QUARANTINE_SCRIPT"; do
+  if [ ! -x "\$required_script" ]; then
+    log "ERROR: review runner helper missing: \$required_script"
+    echo "ERROR: review runner helper missing: \$required_script" >&2
+    exit 1
+  fi
+done
 case "\$REVIEW_TIMEOUT" in
   ''|0*|*[!0-9]*)
     log "ERROR: invalid review timeout in runner: \$REVIEW_TIMEOUT"
@@ -948,13 +986,31 @@ case "\$REVIEW_TIMEOUT" in
     exit 1
     ;;
 esac
+if [ -n "\${REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT:-}" ]; then
+  case "\$REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT" in
+    0*|*[!0-9]*)
+      log "WARN: ignoring invalid REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT=\$REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT"
+      ;;
+    *)
+      if [ "\${#REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT}" -le 9 ] &&
+        [ "\$REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT" -lt "\$REVIEW_TIMEOUT" ]; then
+        REVIEW_TIMEOUT="\$REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT"
+      fi
+      ;;
+  esac
+fi
+unset REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT
 rm -f "\$TIMEOUT_FLAG_FILE"
 
 log "Starting \$REVIEWER review (timeout=\${REVIEW_TIMEOUT}s)"
 START_TIME=\$(date +%s)
 
+# Job control puts the dispatcher in its own process group, so the watchdog
+# can signal every process it started, including re-parented ones.
+set -m
 "\$DISPATCHER_SCRIPT" "\$REVIEWER" "\$PROMPT_FILE" "\$REVIEW_FILE" &
 REVIEWER_PID=\$!
+set +m
 TRACKED_PID="\$REVIEWER_PID"
 write_pid "\$TRACKED_PID"
 run_watchdog "\$REVIEWER_PID" &
@@ -967,9 +1023,10 @@ fi
 stop_watchdog
 
 ELAPSED=\$(( \$(date +%s) - START_TIME ))
-if [ -f "\$TIMEOUT_FLAG_FILE" ]; then
+if [ "\$WATCHDOG_STATUS" = "\$WATCHDOG_TIMEOUT_STATUS" ]; then
+  printf '%s\n' "\$REVIEW_TIMEOUT" > "\$TIMEOUT_FLAG_FILE"
   log "ERROR: \$REVIEWER review timed out after \${ELAPSED}s (limit \${REVIEW_TIMEOUT}s)"
-  # The dispatcher normally quarantines failed output, but it was killed.
+  # The dispatcher normally quarantines failed output, but it was stopped.
   # A KILLed dispatcher also leaves its stdout capture behind.
   if [ -f "\$REVIEW_FILE" ]; then
     quarantine_partial_artifact "\$REVIEW_FILE"
@@ -980,7 +1037,7 @@ if [ -f "\$TIMEOUT_FLAG_FILE" ]; then
   else
     rm -f "\$STDOUT_CAPTURE"
   fi
-  echo "ERROR: \$REVIEWER review timed out after \${ELAPSED}s (limit \${REVIEW_TIMEOUT}s, set by REVIEW_LOOP_REVIEW_TIMEOUT or review_timeout)" >&2
+  echo "ERROR: \$REVIEWER review timed out after \${ELAPSED}s (limit \${REVIEW_TIMEOUT}s; see REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)" >&2
   exit 124
 fi
 log "\$REVIEWER finished (exit=\$REVIEWER_EXIT, elapsed=\${ELAPSED}s)"
@@ -989,7 +1046,8 @@ RUNNER_EOF
     chmod +x "$RUNNER_SCRIPT"
     # Keep reviewer output out of stdout; the hook must emit one JSON decision.
     run_review() {
-      "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
+      REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT="$EFFECTIVE_REVIEW_TIMEOUT" \
+        "$RUNNER_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
       local runner_pid=$!
       local runner_status
       write_child_pid "$runner_pid"
@@ -1015,7 +1073,7 @@ RUNNER_EOF
       REVIEWER_EXIT=$?
     fi
     # Exit 124 alone is not proof: a reviewer may exit 124 by itself. Only
-    # the flag written by the runner's watchdog marks a timeout.
+    # the flag the runner writes after its watchdog fired marks a timeout.
     if [ -f "$TIMEOUT_FLAG_FILE" ]; then
       REVIEW_TIMED_OUT=true
       rm -f "$TIMEOUT_FLAG_FILE"
@@ -1139,6 +1197,16 @@ RUNNER_EOF
       fi
     elif [ -f "$RUNNER_SCRIPT" ]; then
       # Runner script exists but review doesn't — check retry limit
+      # A manual rerun that timed out leaves the runner's flag behind.
+      RERUN_TIMEOUT=""
+      if [ -f "$TIMEOUT_FLAG_FILE" ]; then
+        RERUN_TIMEOUT=$(head -n 1 "$TIMEOUT_FLAG_FILE" 2>/dev/null || true)
+        case "$RERUN_TIMEOUT" in
+          ''|*[!0-9]*) RERUN_TIMEOUT="?" ;;
+        esac
+        rm -f "$TIMEOUT_FLAG_FILE"
+        log "ERROR: the last $REVIEWER run timed out (limit ${RERUN_TIMEOUT}s, review_id=$REVIEW_ID, round=$ROUND)"
+      fi
       RETRY_FILE=".claude/review-loop-retries"
       RETRY_COUNT=0
       if [ -f "$RETRY_FILE" ]; then
@@ -1150,7 +1218,13 @@ RUNNER_EOF
         # Already told Claude to run the script once — reviewer failed, don't retry
         log "ERROR: $REVIEWER failed to produce review, failing open (review_id=$REVIEW_ID)"
         cleanup_runtime_files
-        printf '{"decision":"approve"}\n'
+        if [ -n "$RERUN_TIMEOUT" ]; then
+          SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out after ${RERUN_TIMEOUT}s on the rerun; the loop ended without a review (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
+          jq -n --arg s "$SYS_MSG" '{decision:"approve", systemMessage:$s}' 2>/dev/null \
+            || printf '{"decision":"approve","systemMessage":"%s"}\n' "$SYS_MSG"
+        else
+          printf '{"decision":"approve"}\n'
+        fi
       else
         echo "$RETRY_COUNT" > "$RETRY_FILE"
         log "Review file not found ($REVIEW_FILE), prompting Claude to run $REVIEWER"
@@ -1161,6 +1235,9 @@ RUNNER_EOF
           exit 0
         fi
         SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review not yet complete"
+        if [ -n "$RERUN_TIMEOUT" ]; then
+          SYS_MSG="${SYS_MSG} (the last run timed out after ${RERUN_TIMEOUT}s)"
+        fi
         jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
           '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
           || printf '{"decision":"block","reason":"%s review not yet complete. Run: bash %s","systemMessage":"%s"}\n' "$REVIEWER" "$RUNNER_SCRIPT" "$SYS_MSG"
