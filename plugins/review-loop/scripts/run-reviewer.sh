@@ -64,7 +64,7 @@ OUTPUT_FILE="${REVIEW_FILE}.stdout.$$"
 # capture still present here belongs to a run that was interrupted (for
 # example stopped by the runner's timeout watchdog). Its partial output is
 # kept as a numbered reviewer-error file.
-# shellcheck disable=SC2329 # invoked by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap; older shellcheck reports SC2317, newer SC2329
 keep_interrupted_capture() {
   if [ -s "$OUTPUT_FILE" ]; then
     "$SCRIPT_DIR/quarantine-review-artifact.sh" "$REVIEW_FILE" "$OUTPUT_FILE" >/dev/null 2>&1 ||

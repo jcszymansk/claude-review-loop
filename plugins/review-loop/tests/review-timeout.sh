@@ -807,7 +807,8 @@ printf 'capture\n' > "$QUARANTINE_DIR/capture"
   "$QUARANTINE_DIR/review-1.md.reviewer-error.3" ] || fail "quarantine of a second source did not continue the numbering"
 [ "$(cat "$QUARANTINE_DIR/review-1.md.reviewer-error.1")" = "existing" ] ||
   fail "quarantine overwrote an earlier artifact"
-[ ! -e "$QUARANTINE_DIR/review-1.md" ] && [ ! -e "$QUARANTINE_DIR/capture" ] ||
+if [ -e "$QUARANTINE_DIR/review-1.md" ] || [ -e "$QUARANTINE_DIR/capture" ]; then
   fail "quarantine left its source behind"
+fi
 
 printf 'review timeout tests passed\n'
