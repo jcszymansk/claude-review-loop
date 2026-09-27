@@ -23,13 +23,15 @@ if [ -z "$start_dir" ]; then
 fi
 session_id="$("$SCRIPT_DIR/normalize-session-id.sh" "${2:-}")"
 
+# The registry comes first: the hook's cwd may be a directory that no longer
+# exists, such as a removed worktree.
+if [ -n "$session_id" ] && "$SCRIPT_DIR/loop-registry.sh" lookup "$session_id"; then
+  exit 0
+fi
+
 if ! dir="$(cd "$start_dir" 2>/dev/null && pwd)"; then
   echo "Error: cannot enter $start_dir" >&2
   exit 2
-fi
-
-if [ -n "$session_id" ] && "$SCRIPT_DIR/loop-registry.sh" lookup "$session_id"; then
-  exit 0
 fi
 
 if [ -f "${dir%/}/$STATE_PATH" ]; then

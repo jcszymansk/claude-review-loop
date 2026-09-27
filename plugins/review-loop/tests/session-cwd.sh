@@ -15,7 +15,8 @@ REGISTRY="$PLUGIN_DIR/scripts/loop-registry.sh"
 FINDER="$PLUGIN_DIR/scripts/find-loop-root.sh"
 COMMAND_FILE="$PLUGIN_DIR/commands/review-loop.md"
 CANCEL_COMMAND_FILE="$PLUGIN_DIR/commands/cancel-review.md"
-TMP_DIR="$(mktemp -d)"
+# The registry stores physical paths; compare against physical ones.
+TMP_DIR="$(cd "$(mktemp -d)" && pwd -P)"
 BIN_DIR="$TMP_DIR/bin"
 HOME_DIR="$TMP_DIR/home"
 SESSIONS_DIR="$HOME_DIR/.local/state/review-loop/sessions"
@@ -454,6 +455,60 @@ sandbox "$REGISTRY" unregister "$OWNER_SESSION" "$TMP_DIR/elsewhere"
 assert_pointer "$OWNER_SESSION" "$PROJECT"
 sandbox "$REGISTRY" unregister "$OWNER_SESSION" "$PROJECT"
 assert_no_pointer "$OWNER_SESSION"
+
+# ── Registry entries hold the physical loop directory ─────────────────────
+PROJECT="$TMP_DIR/real-project"
+LINKED="$TMP_DIR/linked-project"
+REVIEW_ID="20260927-120014-efefef"
+make_project "$PROJECT"
+ln -s "$PROJECT" "$LINKED"
+write_state "$LINKED" "$REVIEW_ID" addressing "$OWNER_SESSION"
+assert_pointer "$OWNER_SESSION" "$PROJECT"
+# Reached through the physical path by a new session after /clear, the loop
+# is still unregistered when it is cancelled.
+cancel_output=$(cd "$PROJECT" && sandbox "$CANCEL" "$OTHER_SESSION")
+case "$cancel_output" in
+  *"Review loop cancelled"*) ;;
+  *) fail "cancel through the physical path reported: $cancel_output" ;;
+esac
+assert_no_pointer "$OWNER_SESSION"
+# unregister accepts either spelling of the directory.
+sandbox "$REGISTRY" register "$OWNER_SESSION" "$LINKED"
+sandbox "$REGISTRY" unregister "$OWNER_SESSION" "$LINKED"
+assert_no_pointer "$OWNER_SESSION"
+
+# ── The registry is consulted even when the hook's cwd is gone ────────────
+PROJECT="$TMP_DIR/cwd-gone"
+REVIEW_ID="20260927-120015-fafafa"
+make_project "$PROJECT"
+write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
+[ "$(sandbox "$FINDER" "$TMP_DIR/deleted-worktree" "$OWNER_SESSION")" = "$PROJECT" ] ||
+  fail "find-loop-root.sh gave up on a missing cwd despite a registered loop"
+
+# ── An unreadable state file keeps its registry entry ─────────────────────
+chmod 000 "$PROJECT/.claude/review-loop.local.json"
+if sandbox "$REGISTRY" lookup "$OWNER_SESSION" >/dev/null 2>&1; then
+  chmod 600 "$PROJECT/.claude/review-loop.local.json"
+  if [ "$(id -u)" -ne 0 ]; then
+    fail "lookup returned a loop whose state could not be read"
+  fi
+fi
+chmod 600 "$PROJECT/.claude/review-loop.local.json"
+assert_pointer "$OWNER_SESSION" "$PROJECT"
+
+# ── register sweeps entries whose loop is gone ────────────────────────────
+DEAD_SESSION="0d0d0d0d-dead-4bad-8bad-0d0d0d0d0d0d"
+FOREIGN_SESSION="1e1e1e1e-f0e1-4bad-8bad-1e1e1e1e1e1e"
+printf '%s\n' "$TMP_DIR/gone" > "$SESSIONS_DIR/$DEAD_SESSION"
+printf '%s\n' "$PROJECT" > "$SESSIONS_DIR/$FOREIGN_SESSION"
+sandbox "$REGISTRY" register "$OTHER_SESSION" "$TMP_DIR/bin"
+assert_no_pointer "$DEAD_SESSION"
+assert_no_pointer "$FOREIGN_SESSION"
+assert_pointer "$OWNER_SESSION" "$PROJECT"
+assert_pointer "$OTHER_SESSION" "$TMP_DIR/bin"
+sandbox "$REGISTRY" unregister "$OTHER_SESSION" "$TMP_DIR/bin"
+sandbox "$REGISTRY" unregister "$OWNER_SESSION" "$PROJECT"
+rm -f "$PROJECT/.claude/review-loop.local.json"
 
 # ── find-loop-root.sh arguments ───────────────────────────────────────────
 status=0
