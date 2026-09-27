@@ -465,7 +465,7 @@ HANG_MESSAGE=$(jq -r '.systemMessage' <<< "$HANG_OUTPUT")
 assert_contains "$HANG_REASON" "timed out after 2 seconds" "timeout reason"
 assert_contains "$HANG_REASON" "REVIEW_LOOP_REVIEW_TIMEOUT" "timeout reason"
 assert_contains "$HANG_REASON" "review_timeout" "timeout reason"
-assert_contains "$HANG_REASON" "bash .claude/review-loop-run-codex.sh" "timeout reason"
+assert_contains "$HANG_REASON" "bash $HANG_PROJECT/.claude/review-loop-run-codex.sh" "timeout reason"
 assert_contains "$HANG_MESSAGE" "timed out after 2s" "timeout systemMessage"
 assert_contains "$HANG_MESSAGE" "REVIEW_LOOP_REVIEW_TIMEOUT" "timeout systemMessage"
 

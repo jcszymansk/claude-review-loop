@@ -46,6 +46,47 @@ if [ -n "${REVIEW_LOOP_HOOK_STARTED_AT:-}" ]; then
 fi
 unset REVIEW_LOOP_HOOK_STARTED_AT
 
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REVIEWER_SCRIPTS_DIR="$PLUGIN_DIR/scripts"
+PROMPTS_DIR="$PLUGIN_DIR/prompts"
+STOP_HOOK_SCRIPT="$PLUGIN_DIR/hooks/${BASH_SOURCE[0]##*/}"
+
+# Consume stdin (hook input JSON) — must read to avoid broken pipe
+HOOK_INPUT=$(cat)
+
+# A Claude reviewer runs in the loop directory as a session of its own; it
+# must neither re-enter the loop nor be reported as a foreign session.
+if [ "${REVIEW_LOOP_REVIEWER_PROCESS:-}" = "1" ]; then
+  if [ -d .claude ]; then
+    printf '[%s] Allowing Claude reviewer process to exit without re-entering the review loop\n' \
+      "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> .claude/review-loop.log 2>/dev/null || true
+  fi
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
+
+# Claude Code runs this hook in the session's current directory, which follows
+# the main agent's last `cd`. Every path below is relative to the loop
+# directory, so find it and move there before anything reads or writes one;
+# the ERR trap and its cleanup must not run against another directory.
+HOOK_CWD="$PWD"
+HOOK_SESSION_ID=""
+if command -v jq >/dev/null 2>&1; then
+  HOOK_SESSION_ID=$(jq -r 'if type == "object" and (.session_id | type == "string") then .session_id else "" end' \
+    <<< "$HOOK_INPUT" 2>/dev/null || true)
+fi
+HOOK_SESSION_ID=$("$REVIEWER_SCRIPTS_DIR/normalize-session-id.sh" "$HOOK_SESSION_ID" 2>/dev/null || true)
+if ! LOOP_ROOT=$("$REVIEWER_SCRIPTS_DIR/find-loop-root.sh" "$HOOK_CWD" "$HOOK_SESSION_ID" 2>/dev/null) ||
+  ! cd "$LOOP_ROOT" 2>/dev/null; then
+  if [ -f "$HOOK_CWD/.claude/review-loop.local.json" ]; then
+    printf '[%s] Stop hook for session %s ignored the review loop in %s, which belongs to another session\n' \
+      "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "${HOOK_SESSION_ID:-unknown}" "$HOOK_CWD" \
+      >> "$HOOK_CWD/.claude/review-loop.log" 2>/dev/null || true
+  fi
+  printf '{"decision":"approve"}\n'
+  exit 0
+fi
+
 LOG_FILE=".claude/review-loop.log"
 log() {
   mkdir -p "$(dirname "$LOG_FILE")"
@@ -76,12 +117,8 @@ on_hook_error() {
 }
 trap 'on_hook_error "$LINENO"' ERR
 
-# Consume stdin (hook input JSON) — must read to avoid broken pipe
-HOOK_INPUT=$(cat)
-if [ "${REVIEW_LOOP_REVIEWER_PROCESS:-}" = "1" ]; then
-  log "Allowing Claude reviewer process to exit without re-entering the review loop"
-  printf '{"decision":"approve"}\n'
-  exit 0
+if [ "$LOOP_ROOT" != "$HOOK_CWD" ]; then
+  log "Stop hook ran in $HOOK_CWD; using the review loop in $LOOP_ROOT"
 fi
 
 
@@ -120,7 +157,6 @@ clear_child_pid() {
     rm -f "$CHILD_PID_FILE"
   fi
 }
-REVIEWER_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
 PR_URL_RESOLVER="$REVIEWER_SCRIPTS_DIR/resolve-pr-url.sh"
 BASELINE_SCRIPT="$REVIEWER_SCRIPTS_DIR/capture-worktree-tree.sh"
 HOOK_TIMEOUT_READER="$REVIEWER_SCRIPTS_DIR/read-hook-timeout.sh"
@@ -131,12 +167,6 @@ TIMEOUT_FLAG_FILE=".claude/review-loop-timed-out"
 DEFAULT_REVIEW_TIMEOUT=1800
 FALLBACK_HOOK_TIMEOUT=600
 HOOK_TIMEOUT_MARGIN_SECONDS=60
-PROMPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../prompts" && pwd)"
-STOP_HOOK_SCRIPT="${BASH_SOURCE[0]}"
-case "$STOP_HOOK_SCRIPT" in
-  /*) ;;
-  *) STOP_HOOK_SCRIPT="$PWD/$STOP_HOOK_SCRIPT" ;;
-esac
 
 # No active loop → allow exit
 if [ ! -f "$STATE_FILE" ]; then
@@ -301,21 +331,21 @@ case "$REVIEWER" in
     REVIEWER_NAME="Codex"
     REVIEWER_INSTALL="npm install -g @openai/codex"
     PROMPT_FILE=".claude/review-loop-codex-prompt.txt"
-    RUNNER_SCRIPT=".claude/review-loop-run-codex.sh"
+    RUNNER_SCRIPT="$LOOP_ROOT/.claude/review-loop-run-codex.sh"
     ;;
   cursor)
     REVIEWER_CLI="cursor-agent"
     REVIEWER_NAME="Cursor Agent"
     REVIEWER_INSTALL="curl https://cursor.com/install -fsS | bash"
     PROMPT_FILE=".claude/review-loop-cursor-prompt.txt"
-    RUNNER_SCRIPT=".claude/review-loop-run-cursor.sh"
+    RUNNER_SCRIPT="$LOOP_ROOT/.claude/review-loop-run-cursor.sh"
     ;;
   claude)
     REVIEWER_CLI="claude"
     REVIEWER_NAME="Claude Code"
     REVIEWER_INSTALL="https://code.claude.com/docs/en/setup"
     PROMPT_FILE=".claude/review-loop-claude-prompt.txt"
-    RUNNER_SCRIPT=".claude/review-loop-run-claude.sh"
+    RUNNER_SCRIPT="$LOOP_ROOT/.claude/review-loop-run-claude.sh"
     ;;
   *)
     log "ERROR: unsupported reviewer: $REVIEWER"
@@ -630,11 +660,11 @@ render_prompt_template() {
   replace_prompt_placeholder "__ROUND__" "$ROUND"
   replace_prompt_placeholder "__REVIEW_STATUS__" "$REVIEW_STATUS"
   replace_prompt_placeholder "__RUNNER_SCRIPT__" "$RUNNER_SCRIPT"
-  replace_prompt_placeholder "__REVIEW_FILE__" "$REVIEW_FILE"
-  replace_prompt_placeholder "__REVIEW_DIR__" "$REVIEW_DIR"
-  replace_prompt_placeholder "__SUMMARY_FILE__" "$SUMMARY_FILE"
+  replace_prompt_placeholder "__REVIEW_FILE__" "$LOOP_ROOT/$REVIEW_FILE"
+  replace_prompt_placeholder "__REVIEW_DIR__" "$LOOP_ROOT/$REVIEW_DIR"
+  replace_prompt_placeholder "__SUMMARY_FILE__" "$LOOP_ROOT/$SUMMARY_FILE"
   replace_prompt_placeholder "__TASK__" "$TASK"
-  replace_prompt_placeholder "__TASK_DIFF_FILE__" "$TASK_DIFF_FILE"
+  replace_prompt_placeholder "__TASK_DIFF_FILE__" "${TASK_DIFF_FILE:+$LOOP_ROOT/$TASK_DIFF_FILE}"
   replace_prompt_placeholder "__PR_URL__" "$PR_URL"
   replace_prompt_placeholder "__REVIEW_SCOPE__" "$REVIEW_SCOPE"
   replace_prompt_placeholder "__PRIOR_ROUND_HISTORY__" "$PRIOR_ROUND_HISTORY"
@@ -841,7 +871,7 @@ wait_for_live_runner() {
   fi
 
   log "WARN: the ${REVIEWER} review is still running after waiting ${waited}s; the Stop hook budget is spent (runner pid=$runner_pid, hook timeout ${HOOK_TIMEOUT}s)"
-  reason="The ${REVIEWER} review started with bash ${RUNNER_SCRIPT} is still running (pid ${runner_pid}). Do not start another run. Wait for its background completion notification, then read ${REVIEW_FILE} and continue; the Stop hook evaluates the review once the run has finished."
+  reason="The ${REVIEWER} review started with bash ${RUNNER_SCRIPT} is still running (pid ${runner_pid}). Do not start another run. Wait for its background completion notification, then read ${LOOP_ROOT}/${REVIEW_FILE} and continue; the Stop hook evaluates the review once the run has finished."
   system_message="Review Loop [${REVIEW_ID}] — ${REVIEWER} review still running after the Stop hook waited ${waited}s; waiting for the rerun to finish"
   jq -n --arg r "$reason" --arg s "$system_message" \
     '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -920,8 +950,11 @@ Then run /review-loop again."
     # The runner carries the configured limit because Claude may rerun it by
     # hand through the retry gate, outside this hook's budget. The hook passes
     # its lower effective limit in REVIEW_LOOP_EFFECTIVE_REVIEW_TIMEOUT.
+    printf -v LOOP_ROOT_QUOTED '%q' "$LOOP_ROOT"
     cat > "$RUNNER_SCRIPT" << RUNNER_EOF
 #!/usr/bin/env bash
+# Claude may rerun this script from whatever directory its shell is in.
+cd -- ${LOOP_ROOT_QUOTED} || { echo "Error: cannot enter the review loop directory ${LOOP_ROOT_QUOTED}" >&2; exit 1; }
 LOG_FILE=".claude/review-loop.log"
 log() { echo "[\$(date -u +"%Y-%m-%dT%H:%M:%SZ")] \$*" >> "\$LOG_FILE"; }
 

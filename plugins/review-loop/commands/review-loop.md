@@ -78,6 +78,12 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+SESSION_ID="$("${CLAUDE_PLUGIN_ROOT}/scripts/normalize-session-id.sh" "${CLAUDE_SESSION_ID}")"
+if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("${CLAUDE_PLUGIN_ROOT}/scripts/find-loop-root.sh" "$PWD" "$SESSION_ID")"; then
+  echo "Error: This session already has an active review loop in ${ACTIVE_LOOP_ROOT}. Use /cancel-review first."
+  exit 1
+fi
+
 if [ "$REVIEWER" = "codex" ]; then
   "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-codex-config.sh"
 fi
@@ -102,17 +108,20 @@ jq -n \
   --argjson review_timeout "$REVIEW_TIMEOUT" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  --arg session_id "$SESSION_ID" \
   '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_timeout:$review_timeout, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
-   if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
+   if $pr_url == "" then . else . + {pr_url:$pr_url} end |
+   if $session_id == "" then . else . + {session_id:$session_id} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER}, review timeout: ${REVIEW_TIMEOUT}s)"
-echo "Review artifacts: ${LOOP_DIR}/summary-0.md and ${LOOP_DIR}/review-1.md"
+echo "Loop directory: ${PWD}"
+echo "Review artifacts: ${PWD}/${LOOP_DIR}/summary-0.md and ${PWD}/${LOOP_DIR}/review-1.md"
 ```
 
 After setup completes successfully, proceed to implement the task described in the arguments. Work thoroughly and completely — write clean, well-structured, well-tested code.
 
-Before your first stop, read `.claude/review-loop.local.json` to get the review ID and update `reviews/<review_id>/summary-0.md` with an implementation summary. Include changed files, key decisions, and verification results.
+All loop paths below are relative to the loop directory printed by setup, even after you `cd` elsewhere. Before your first stop, read `.claude/review-loop.local.json` in that directory to get the review ID and update `reviews/<review_id>/summary-0.md` with an implementation summary. Include changed files, key decisions, and verification results.
 
 After the Stop hook runs the review:
 1. Read `reviews/<review_id>/review-<round>.md` and address the findings

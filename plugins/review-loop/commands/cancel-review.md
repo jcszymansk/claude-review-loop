@@ -5,25 +5,18 @@ allowed-tools:
   - Read
 ---
 
-Check if a review loop is active:
+Run the cancellation helper:
 
 ```bash
-test -f .claude/review-loop.local.json && echo "ACTIVE" || echo "NONE"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cancel-review-loop.sh" "${CLAUDE_SESSION_ID}"
 ```
 
-If active, read `.claude/review-loop.local.json` to get the current phase and review ID.
-
-Then run the cancellation helper:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cancel-review-loop.sh"
-```
-
-The helper stops the active reviewer process and its children, then removes the
-runtime state and generated reviewer files.
+The helper finds this session's review loop, in the current directory or in a
+parent directory the loop was started from. It stops the active reviewer
+process and its children, then removes the runtime state and generated
+reviewer files, and reports the phase and review ID the loop was at.
 Leave `reviews/<review_id>/` untouched. It contains the review history and
 must remain available after cancellation.
 
 Report the helper output. If no review loop was active, it reports:
 "No active review loop found."
-

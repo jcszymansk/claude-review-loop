@@ -132,8 +132,12 @@ for output_file in "$NONPTY_OUTPUT" "$PTY_OUTPUT"; do
   esac
 done
 
-jq -S . "$NONPTY_OUTPUT" > "$TMP_DIR/non-pty-sorted.json"
-jq -S . "$PTY_OUTPUT" > "$TMP_DIR/pty-sorted.json"
+# The handoff names loop files by absolute path, so the project directories
+# differ; everything else must match.
+jq -S --arg dir "$NONPTY_PROJECT" 'walk(if type == "string" then (split($dir) | join("<project>")) else . end)' \
+  "$NONPTY_OUTPUT" > "$TMP_DIR/non-pty-sorted.json"
+jq -S --arg dir "$PTY_PROJECT" 'walk(if type == "string" then (split($dir) | join("<project>")) else . end)' \
+  "$PTY_OUTPUT" > "$TMP_DIR/pty-sorted.json"
 cmp "$TMP_DIR/non-pty-sorted.json" "$TMP_DIR/pty-sorted.json"
 
 for project_dir in "$NONPTY_PROJECT" "$PTY_PROJECT"; do

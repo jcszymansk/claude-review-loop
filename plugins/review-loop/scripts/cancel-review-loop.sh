@@ -1,8 +1,26 @@
 #!/usr/bin/env bash
+# Usage: cancel-review-loop.sh [session-id]
+#
+# Cancels the review loop that the session in the current directory belongs
+# to; find-loop-root.sh decides when a loop in a parent directory is its own.
 set -u
 
 STATE_FILE=".claude/review-loop.local.json"
 PID_FILE=".claude/review-loop-child.pid"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STOP_TREE_SCRIPT="$SCRIPT_DIR/stop-process-tree.sh"
+
+if loop_root="$("$SCRIPT_DIR/find-loop-root.sh" "$PWD" "${1:-}" 2>/dev/null)"; then
+  if ! cd "$loop_root"; then
+    printf 'Error: cannot enter the review loop directory %s\n' "$loop_root" >&2
+    exit 1
+  fi
+elif [ -f "$STATE_FILE" ]; then
+  # The loop here belongs to another session; its files are not ours to remove.
+  printf 'No active review loop found.\n'
+  exit 0
+fi
 
 runtime_files=(
   "$STATE_FILE"
@@ -17,9 +35,6 @@ runtime_files=(
   ".claude/review-loop-timed-out"
   "$PID_FILE"
 )
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STOP_TREE_SCRIPT="$SCRIPT_DIR/stop-process-tree.sh"
 
 valid_pid() {
   case "$1" in

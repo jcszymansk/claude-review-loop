@@ -120,6 +120,13 @@ if [ -f "$STATE_FILE" ]; then
   echo "Error: A review loop is already active. Use /cancel-review to abort it first."
   exit 1
 fi
+# The Stop hook uses the session id to find this loop after Claude has cd'd
+# into a subdirectory, so one session must not own two nested loops.
+SESSION_ID="$("$SCRIPT_DIR/normalize-session-id.sh" "${CLAUDE_SESSION_ID:-}")"
+if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("$SCRIPT_DIR/find-loop-root.sh" "$PWD" "$SESSION_ID")"; then
+  echo "Error: This session already has an active review loop in ${ACTIVE_LOOP_ROOT}. Use /cancel-review to abort it first."
+  exit 1
+fi
 BASELINE_TREE="$("$SCRIPT_DIR/capture-worktree-tree.sh")"
 
 
@@ -157,8 +164,10 @@ jq -n \
   --argjson review_timeout "$REVIEW_TIMEOUT" \
   --arg review_id "$REVIEW_ID" \
   --arg started_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  --arg session_id "$SESSION_ID" \
   '{active:true, phase:"task", reviewer:$reviewer, task:$task, round:$round, max_rounds:$max_rounds, review_timeout:$review_timeout, review_id:$review_id, started_at:$started_at, baseline_tree:$baseline_tree} |
-   if $pr_url == "" then . else . + {pr_url:$pr_url} end' \
+   if $pr_url == "" then . else . + {pr_url:$pr_url} end |
+   if $session_id == "" then . else . + {session_id:$session_id} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
 
@@ -169,8 +178,9 @@ echo "Review Loop activated"
 echo "  ID:      ${REVIEW_ID}"
 echo "  Timeout: ${REVIEW_TIMEOUT}s per review"
 echo "  Phase:   1/2 — Task implementation"
-echo "  Summary: ${LOOP_DIR}/summary-0.md"
-echo "  Review:  ${LOOP_DIR}/review-1.md"
+echo "  State:   ${PWD}/${STATE_FILE}"
+echo "  Summary: ${PWD}/${LOOP_DIR}/summary-0.md"
+echo "  Review:  ${PWD}/${LOOP_DIR}/review-1.md"
 echo ""
 echo "  Lifecycle:"
 echo "    1. You implement the task"
