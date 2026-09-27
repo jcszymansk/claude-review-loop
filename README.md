@@ -111,7 +111,7 @@ Cancellation stops the active reviewer process and its children. The
 ## How it works
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
-1. The hook finds the loop and reads its JSON state file (`.claude/review-loop.local.json`). Claude Code runs the hook in the session's current directory, which follows Claude's last `cd`, so the hook also looks in parent directories (up to the enclosing git checkout) for a loop that the same session started, and otherwise uses a loop in the current directory
+1. The hook finds the loop and reads its JSON state file (`.claude/review-loop.local.json`). Claude Code runs the hook in the session's current directory, which follows Claude's last `cd`, so setup records the loop directory under `${XDG_STATE_HOME:-~/.local/state}/review-loop/sessions/`, keyed by the Claude Code session id, and the hook finds the loop there; without an entry it uses a loop in the current directory
 2. If in `task` phase: renders the review prompt, writes a numbered reviewer runner script, runs the configured reviewer for the current round, and transitions to `addressing`
 3. If the review verdict is `FAIL`, the hook returns the findings to the same Claude session
 4. After that session writes the correction summary, the hook advances the round and reruns the reviewer automatically
@@ -153,7 +153,8 @@ claude-review-loop/
     │   ├── stop-process-tree.sh   # TERM, then KILL, a process tree
     │   ├── resolve-pr-url.sh      # Validate and parse pull request URLs
     │   ├── cancel-review-loop.sh  # Stop active loop child processes
-    │   ├── find-loop-root.sh      # Find the session's loop from a subdirectory
+    │   ├── find-loop-root.sh      # Find the loop a Stop event belongs to
+    │   ├── loop-registry.sh       # Per-user registry of each session's loop directory
     │   ├── normalize-session-id.sh # Validate a Claude Code session id
     │   └── ensure-codex-config.sh # Preserve Codex multi-agent setup
     ├── prompts/

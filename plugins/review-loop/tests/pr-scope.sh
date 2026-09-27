@@ -140,7 +140,7 @@ git -C "$COMMAND_PROJECT" add base.txt
 git -C "$COMMAND_PROJECT" commit -qm base
 (
   cd "$COMMAND_PROJECT"
-  env PATH="$BIN_DIR:$PATH" HOME="$TMP_DIR/home" ARGUMENTS='--pr https://github.com/acme/api/pull/55 command path task' \
+  env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID -u XDG_STATE_HOME PATH="$BIN_DIR:$PATH" HOME="$TMP_DIR/home" ARGUMENTS='--pr https://github.com/acme/api/pull/55 command path task' \
     CLAUDE_PLUGIN_ROOT="$SCRIPT_DIR/.." REVIEW_LOOP_PR= REVIEW_LOOP_REVIEWER=codex \
     "$COMMAND_SCRIPT" >/dev/null
 )

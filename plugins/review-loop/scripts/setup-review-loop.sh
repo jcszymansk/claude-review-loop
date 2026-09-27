@@ -120,10 +120,12 @@ if [ -f "$STATE_FILE" ]; then
   echo "Error: A review loop is already active. Use /cancel-review to abort it first."
   exit 1
 fi
-# The Stop hook uses the session id to find this loop after Claude has cd'd
-# into a subdirectory, so one session must not own two nested loops.
+# The Stop hook finds this loop through the session registry after Claude has
+# cd'd elsewhere, so one session can own only one loop. Only an explicit
+# CLAUDE_SESSION_ID counts: a script run inside a Claude Code session must not
+# claim that session through the ambient CLAUDE_CODE_SESSION_ID.
 SESSION_ID="$("$SCRIPT_DIR/normalize-session-id.sh" "${CLAUDE_SESSION_ID:-}")"
-if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("$SCRIPT_DIR/find-loop-root.sh" "$PWD" "$SESSION_ID")"; then
+if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("$SCRIPT_DIR/loop-registry.sh" lookup "$SESSION_ID")"; then
   echo "Error: This session already has an active review loop in ${ACTIVE_LOOP_ROOT}. Use /cancel-review to abort it first."
   exit 1
 fi
@@ -170,6 +172,9 @@ jq -n \
    if $session_id == "" then . else . + {session_id:$session_id} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
+if [ -n "$SESSION_ID" ] && ! "$SCRIPT_DIR/loop-registry.sh" register "$SESSION_ID" "$PWD"; then
+  echo "Warning: could not record this loop in the session registry; the Stop hook will only find it from ${PWD}."
+fi
 
 
 

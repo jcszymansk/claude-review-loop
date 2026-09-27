@@ -67,29 +67,14 @@ fi
 
 # Claude Code runs this hook in the session's current directory, which follows
 # the main agent's last `cd`. Every path below is relative to the loop
-# directory, so find it and move there before anything reads or writes one;
-# the ERR trap and its cleanup must not run against another directory.
-#
-# The hook input's cwd is the session's logical path. The process cwd can be
-# the physical one (a symlinked subdirectory resolves outside the project), so
-# the input path wins when both name the same directory.
-input_field() {
-  jq -r --arg field "$1" 'if type == "object" and (.[$field] | type == "string") then .[$field] else "" end' \
-    <<< "$HOOK_INPUT" 2>/dev/null || true
-}
+# directory, so find it (find-loop-root.sh asks the session registry first)
+# and move there before anything reads or writes one; the ERR trap and its
+# cleanup must not run against another directory.
 HOOK_CWD="$PWD"
 HOOK_SESSION_ID=""
 if command -v jq >/dev/null 2>&1; then
-  HOOK_SESSION_ID=$(input_field session_id)
-  INPUT_CWD=$(input_field cwd)
-  case "$INPUT_CWD" in
-    /*)
-      if [ -d "$INPUT_CWD" ] &&
-        [ "$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)" = "$(pwd -P)" ]; then
-        HOOK_CWD="$INPUT_CWD"
-      fi
-      ;;
-  esac
+  HOOK_SESSION_ID=$(jq -r 'if type == "object" and (.session_id | type == "string") then .session_id else "" end' \
+    <<< "$HOOK_INPUT" 2>/dev/null || true)
 fi
 HOOK_SESSION_ID=$("$REVIEWER_SCRIPTS_DIR/normalize-session-id.sh" "$HOOK_SESSION_ID" 2>/dev/null || true)
 if ! LOOP_ROOT=$("$REVIEWER_SCRIPTS_DIR/find-loop-root.sh" "$HOOK_CWD" "$HOOK_SESSION_ID" 2>/dev/null) ||
@@ -136,6 +121,17 @@ fi
 CHILD_PID_FILE=".claude/review-loop-child.pid"
 STATE_FILE=".claude/review-loop.local.json"
 cleanup_runtime_files() {
+  local owner=""
+
+  # The owner is read from the file, not from parsed state: fail_open can run
+  # before (or because) the state could not be parsed.
+  if [ -f "$STATE_FILE" ] && command -v jq >/dev/null 2>&1; then
+    owner=$(jq -r 'if type == "object" and (.session_id | type == "string") then .session_id else "" end' \
+      "$STATE_FILE" 2>/dev/null || true)
+  fi
+  if [ -n "$owner" ]; then
+    "$REVIEWER_SCRIPTS_DIR/loop-registry.sh" unregister "$owner" "$LOOP_ROOT" >/dev/null 2>&1 || true
+  fi
   # Keep reviews/${REVIEW_ID:-unknown}/ intact; it is the permanent loop history.
   rm -f "$STATE_FILE" .claude/review-loop.lock
   cleanup_generated_files

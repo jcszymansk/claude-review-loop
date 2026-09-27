@@ -78,8 +78,9 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-SESSION_ID="$("${CLAUDE_PLUGIN_ROOT}/scripts/normalize-session-id.sh" "${CLAUDE_SESSION_ID}")"
-if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("${CLAUDE_PLUGIN_ROOT}/scripts/find-loop-root.sh" "$PWD" "$SESSION_ID")"; then
+SESSION_ID="${CLAUDE_SESSION_ID}"
+SESSION_ID="$("${CLAUDE_PLUGIN_ROOT}/scripts/normalize-session-id.sh" "${SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}")"
+if [ -n "$SESSION_ID" ] && ACTIVE_LOOP_ROOT="$("${CLAUDE_PLUGIN_ROOT}/scripts/loop-registry.sh" lookup "$SESSION_ID")"; then
   echo "Error: This session already has an active review loop in ${ACTIVE_LOOP_ROOT}. Use /cancel-review first."
   exit 1
 fi
@@ -114,6 +115,9 @@ jq -n \
    if $session_id == "" then . else . + {session_id:$session_id} end' \
   > "$STATE_TEMP"
 mv "$STATE_TEMP" "$STATE_FILE"
+if [ -n "$SESSION_ID" ] && ! "${CLAUDE_PLUGIN_ROOT}/scripts/loop-registry.sh" register "$SESSION_ID" "$PWD"; then
+  echo "Warning: could not record this loop in the session registry; the Stop hook will only find it from ${PWD}."
+fi
 echo "Review Loop activated (ID: ${REVIEW_ID}, reviewer: ${REVIEWER}, review timeout: ${REVIEW_TIMEOUT}s)"
 echo "Loop directory: ${PWD}"
 echo "Review artifacts: ${PWD}/${LOOP_DIR}/summary-0.md and ${PWD}/${LOOP_DIR}/review-1.md"

@@ -2,7 +2,8 @@
 # Usage: cancel-review-loop.sh [session-id]
 #
 # Cancels the review loop that the session in the current directory belongs
-# to; find-loop-root.sh decides when a loop in a parent directory is its own.
+# to: the loop registered for the session, or else the loop in the current
+# directory (see find-loop-root.sh). Its registry entry is removed too.
 set -u
 
 STATE_FILE=".claude/review-loop.local.json"
@@ -42,11 +43,14 @@ valid_pid() {
 state_present=false
 phase="unknown"
 review_id="unknown"
+owner=""
 if [ -f "$STATE_FILE" ]; then
   state_present=true
   if command -v jq >/dev/null 2>&1; then
     phase=$(jq -r '.phase // "unknown"' "$STATE_FILE" 2>/dev/null || printf 'unknown')
     review_id=$(jq -r '.review_id // "unknown"' "$STATE_FILE" 2>/dev/null || printf 'unknown')
+    owner=$(jq -r 'if type == "object" and (.session_id | type == "string") then .session_id else "" end' \
+      "$STATE_FILE" 2>/dev/null || true)
   fi
 fi
 
@@ -67,6 +71,9 @@ if [ "$state_present" = true ] && [ -f "$PID_FILE" ]; then
 fi
 
 rm -f "${runtime_files[@]}" "$PID_FILE".tmp.*
+if [ -n "$owner" ]; then
+  "$SCRIPT_DIR/loop-registry.sh" unregister "$owner" "$PWD" >/dev/null 2>&1 || true
+fi
 
 if [ "$state_present" = true ]; then
   printf 'Review loop cancelled (was at phase: %s, review ID: %s)\n' "$phase" "$review_id"
