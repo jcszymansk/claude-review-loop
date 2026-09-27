@@ -239,25 +239,25 @@ jq -e '.decision == "block"' <<< "$output" >/dev/null || fail "the nested loop d
 jq -e '.phase == "addressing"' "$SUBDIR/.claude/review-loop.local.json" >/dev/null ||
   fail "the nested loop did not advance"
 
-# ── A loop of another session in the hook's own directory is skipped ──────
+# ── After /clear the session id changes; the loop in the cwd keeps running ─
 PROJECT="$TMP_DIR/foreign-here"
 REVIEW_ID="20260927-120007-aabbcc"
 COUNT="$TMP_DIR/foreign-here-count"
 make_project "$PROJECT"
 write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
-state_before=$(cat "$PROJECT/.claude/review-loop.local.json")
 
 output=$(run_hook "$PROJECT" "$OTHER_SESSION" "$COUNT")
-[ "$output" = '{"decision":"approve"}' ] || fail "another session's stop ran the loop in its directory: $output"
-[ "$(cat "$PROJECT/.claude/review-loop.local.json")" = "$state_before" ] ||
-  fail "another session's stop changed the loop state in its directory"
-[ ! -f "$COUNT" ] || fail "another session's stop ran the reviewer in its directory"
-grep -Fq "Stop hook for session $OTHER_SESSION ignored the review loop in $PROJECT, which belongs to another session" \
-  "$PROJECT/.claude/review-loop.log" || fail "the skipped loop is not logged"
+jq -e '.decision == "block"' <<< "$output" >/dev/null ||
+  fail "a new session stopped running the loop in its own directory: $output"
+jq -e '.phase == "addressing"' "$PROJECT/.claude/review-loop.local.json" >/dev/null ||
+  fail "the loop in the cwd did not run for a new session"
+grep -Fq "Stop hook for session $OTHER_SESSION is running the review loop in $PROJECT, started by session $OWNER_SESSION" \
+  "$PROJECT/.claude/review-loop.log" || fail "running another session's loop is not logged"
 
 # A Claude reviewer process runs there as a session of its own; it exits
-# without touching the loop and is not reported as a foreign session.
+# without touching the loop.
 : > "$PROJECT/.claude/review-loop.log"
+state_before=$(cat "$PROJECT/.claude/review-loop.local.json")
 output=$(cd "$PROJECT" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" REVIEW_LOOP_REVIEWER_PROCESS=1 \
   FAKE_COUNT_FILE="$COUNT" "$HOOK" <<< "{\"session_id\":\"$OTHER_SESSION\"}")
 [ "$output" = '{"decision":"approve"}' ] || fail "the reviewer process was not approved: $output"
@@ -265,14 +265,94 @@ output=$(cd "$PROJECT" && env -i HOME="$HOME_DIR" PATH="$BIN_DIR:$PATH" REVIEW_L
   fail "the reviewer process changed the loop state"
 grep -Fq 'Allowing Claude reviewer process to exit' "$PROJECT/.claude/review-loop.log" ||
   fail "the reviewer process exit is not logged"
-if grep -Fq 'belongs to another session' "$PROJECT/.claude/review-loop.log"; then
-  fail "the reviewer process was logged as a foreign session"
+if grep -Fq 'started by session' "$PROJECT/.claude/review-loop.log"; then
+  fail "the reviewer process ran the loop"
 fi
 
 # A stop without a session id keeps the old behavior in the loop directory.
 output=$(run_hook "$PROJECT" "" "$COUNT")
 jq -e '.decision == "block"' <<< "$output" >/dev/null ||
   fail "a stop without a session id no longer runs the loop in its directory: $output"
+
+# /cancel-review works there too, so a loop left by an old session never
+# becomes impossible to cancel.
+cancel_output=$(cd "$PROJECT" && "$CANCEL" "$OTHER_SESSION")
+case "$cancel_output" in
+  *"Review loop cancelled"*"$REVIEW_ID"*) ;;
+  *) fail "a new session could not cancel the loop in its directory: $cancel_output" ;;
+esac
+[ ! -f "$PROJECT/.claude/review-loop.local.json" ] || fail "cancel by a new session left the state"
+
+# ── A worktree inside the repository never adopts the main checkout's loop ─
+PROJECT="$TMP_DIR/worktree-main"
+WORKTREE="$PROJECT/.claude/worktrees/feature"
+REVIEW_ID="20260927-120008-ddeeff"
+COUNT="$TMP_DIR/worktree-count"
+make_project "$PROJECT"
+write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
+git -C "$PROJECT" worktree add -q "$WORKTREE" -b wt-feature
+state_before=$(cat "$PROJECT/.claude/review-loop.local.json")
+output=$(run_hook "$WORKTREE/sub/dir" "$OWNER_SESSION" "$COUNT")
+[ "$output" = '{"decision":"approve"}' ] || fail "a stop in a worktree ran the main checkout's loop: $output"
+[ "$(cat "$PROJECT/.claude/review-loop.local.json")" = "$state_before" ] ||
+  fail "a stop in a worktree changed the main checkout's loop"
+[ ! -f "$COUNT" ] || fail "a stop in a worktree ran the reviewer"
+
+# ── A symlinked cwd resolves through the hook input's logical cwd ─────────
+PROJECT="$TMP_DIR/symlink"
+REVIEW_ID="20260927-120009-a1b2c3"
+COUNT="$TMP_DIR/symlink-count"
+make_project "$PROJECT"
+mkdir -p "$TMP_DIR/elsewhere"
+ln -s "$TMP_DIR/elsewhere" "$PROJECT/link"
+write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
+output=$(
+  cd "$TMP_DIR/elsewhere"
+  env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" PATH="$BIN_DIR:$PATH" \
+    FAKE_COUNT_FILE="$COUNT" "$HOOK" <<< "{\"session_id\":\"$OWNER_SESSION\",\"cwd\":\"$PROJECT/link\"}"
+)
+jq -e '.decision == "block"' <<< "$output" >/dev/null ||
+  fail "a stop from a symlinked subdirectory missed the loop: $output"
+assert_no_loop_files "$TMP_DIR/elsewhere"
+
+# A cwd in the hook input that is not the hook's directory is ignored.
+PROJECT="$TMP_DIR/mismatched-cwd"
+REVIEW_ID="20260927-120010-c3b2a1"
+COUNT="$TMP_DIR/mismatched-count"
+make_project "$PROJECT"
+write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
+mkdir -p "$TMP_DIR/unrelated"
+output=$(
+  cd "$TMP_DIR/unrelated"
+  env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" PATH="$BIN_DIR:$PATH" \
+    FAKE_COUNT_FILE="$COUNT" "$HOOK" <<< "{\"session_id\":\"$OWNER_SESSION\",\"cwd\":\"$PROJECT/sub/dir\"}"
+)
+[ "$output" = '{"decision":"approve"}' ] || fail "a mismatched input cwd redirected the hook: $output"
+[ ! -f "$COUNT" ] || fail "a mismatched input cwd ran the reviewer"
+
+# ── A loop directory with spaces and quotes ───────────────────────────────
+PROJECT="$TMP_DIR/odd \"dir\" \$HOME"
+SUBDIR="$PROJECT/sub/dir"
+REVIEW_ID="20260927-120011-0a0b0c"
+COUNT="$TMP_DIR/odd-count"
+make_project "$PROJECT"
+write_state "$PROJECT" "$REVIEW_ID" task "$OWNER_SESSION"
+output=$(run_hook "$SUBDIR" "$OWNER_SESSION" "$COUNT")
+jq -e '.decision == "block"' <<< "$output" >/dev/null || fail "a loop in an odd directory did not run: $output"
+rm -f "$PROJECT/reviews/$REVIEW_ID/review-1.md"
+output=$(run_hook "$SUBDIR" "$OWNER_SESSION" "$COUNT")
+reason=$(jq -r '.reason' <<< "$output")
+printf -v quoted_runner '%q' "$PROJECT/.claude/review-loop-run-codex.sh"
+case "$reason" in
+  *"bash $quoted_runner"*) ;;
+  *) fail "the rerun instruction does not quote the runner path: $reason" ;;
+esac
+(
+  cd "$SUBDIR"
+  env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" PATH="$BIN_DIR:$PATH" \
+    FAKE_COUNT_FILE="$COUNT" bash -c "bash $quoted_runner" >/dev/null 2>&1
+) || fail "the quoted rerun instruction failed"
+[ -f "$PROJECT/reviews/$REVIEW_ID/review-1.md" ] || fail "the quoted rerun did not write the review"
 
 # ── find-loop-root.sh arguments ───────────────────────────────────────────
 FINDER="$PLUGIN_DIR/scripts/find-loop-root.sh"

@@ -111,7 +111,7 @@ Cancellation stops the active reviewer process and its children. The
 ## How it works
 The plugin uses a **Stop hook** — Claude Code's mechanism for intercepting agent exit. When Claude tries to stop:
 
-1. The hook finds the loop and reads its JSON state file (`.claude/review-loop.local.json`). Claude Code runs the hook in the session's current directory, which follows Claude's last `cd`, so the hook also looks in parent directories for a loop that the same session started; a loop another session started is left alone
+1. The hook finds the loop and reads its JSON state file (`.claude/review-loop.local.json`). Claude Code runs the hook in the session's current directory, which follows Claude's last `cd`, so the hook also looks in parent directories (up to the enclosing git checkout) for a loop that the same session started, and otherwise uses a loop in the current directory
 2. If in `task` phase: renders the review prompt, writes a numbered reviewer runner script, runs the configured reviewer for the current round, and transitions to `addressing`
 3. If the review verdict is `FAIL`, the hook returns the findings to the same Claude session
 4. After that session writes the correction summary, the hook advances the round and reruns the reviewer automatically

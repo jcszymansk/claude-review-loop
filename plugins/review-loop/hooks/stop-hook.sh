@@ -69,20 +69,31 @@ fi
 # the main agent's last `cd`. Every path below is relative to the loop
 # directory, so find it and move there before anything reads or writes one;
 # the ERR trap and its cleanup must not run against another directory.
+#
+# The hook input's cwd is the session's logical path. The process cwd can be
+# the physical one (a symlinked subdirectory resolves outside the project), so
+# the input path wins when both name the same directory.
+input_field() {
+  jq -r --arg field "$1" 'if type == "object" and (.[$field] | type == "string") then .[$field] else "" end' \
+    <<< "$HOOK_INPUT" 2>/dev/null || true
+}
 HOOK_CWD="$PWD"
 HOOK_SESSION_ID=""
 if command -v jq >/dev/null 2>&1; then
-  HOOK_SESSION_ID=$(jq -r 'if type == "object" and (.session_id | type == "string") then .session_id else "" end' \
-    <<< "$HOOK_INPUT" 2>/dev/null || true)
+  HOOK_SESSION_ID=$(input_field session_id)
+  INPUT_CWD=$(input_field cwd)
+  case "$INPUT_CWD" in
+    /*)
+      if [ -d "$INPUT_CWD" ] &&
+        [ "$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)" = "$(pwd -P)" ]; then
+        HOOK_CWD="$INPUT_CWD"
+      fi
+      ;;
+  esac
 fi
 HOOK_SESSION_ID=$("$REVIEWER_SCRIPTS_DIR/normalize-session-id.sh" "$HOOK_SESSION_ID" 2>/dev/null || true)
 if ! LOOP_ROOT=$("$REVIEWER_SCRIPTS_DIR/find-loop-root.sh" "$HOOK_CWD" "$HOOK_SESSION_ID" 2>/dev/null) ||
   ! cd "$LOOP_ROOT" 2>/dev/null; then
-  if [ -f "$HOOK_CWD/.claude/review-loop.local.json" ]; then
-    printf '[%s] Stop hook for session %s ignored the review loop in %s, which belongs to another session\n' \
-      "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "${HOOK_SESSION_ID:-unknown}" "$HOOK_CWD" \
-      >> "$HOOK_CWD/.claude/review-loop.log" 2>/dev/null || true
-  fi
   printf '{"decision":"approve"}\n'
   exit 0
 fi
@@ -129,6 +140,11 @@ cleanup_runtime_files() {
   rm -f "$STATE_FILE" .claude/review-loop.lock
   cleanup_generated_files
 }
+# Makes text safe inside a hand-written JSON string, for the fallbacks used
+# when jq itself fails.
+json_safe() {
+  printf '%s' "$1" | tr -d '"\\\n\r\t'
+}
 # Ends an active loop without an accepted review. The approve always carries
 # a systemMessage naming the cause and the log, so the loop never ends
 # without the user being told why.
@@ -139,7 +155,7 @@ fail_open() {
   log "Failing open: $cause"
   cleanup_runtime_files
   jq -n --arg s "$message" '{decision:"approve", systemMessage:$s}' 2>/dev/null ||
-    printf '{"decision":"approve","systemMessage":"%s"}\n' "$(printf '%s' "$message" | tr -d '"\\\n\r\t')"
+    printf '{"decision":"approve","systemMessage":"%s"}\n' "$(json_safe "$message")"
   exit 0
 }
 write_child_pid() {
@@ -190,6 +206,7 @@ if ! jq -e '
   and (.review_id | type == "string")
   and ((has("pr_url") | not) or (.pr_url | type == "string"))
   and ((has("baseline_tree") | not) or (.baseline_tree | type == "string"))
+  and ((has("session_id") | not) or (.session_id | type == "string"))
   and ((has("review_timeout") | not) or
     (.review_timeout | type == "number" and . >= 1 and . <= 999999999 and . == floor))
 ' "$STATE_FILE" >/dev/null 2>&1; then
@@ -281,7 +298,8 @@ if ! ACTIVE=$(parse_field "active") ||
   ! REVIEW_ID=$(parse_field "review_id") ||
   ! PR_URL=$(parse_field "pr_url") ||
   ! BASELINE_TREE=$(parse_field "baseline_tree") ||
-  ! CONFIGURED_REVIEW_TIMEOUT=$(parse_field "review_timeout"); then
+  ! CONFIGURED_REVIEW_TIMEOUT=$(parse_field "review_timeout") ||
+  ! LOOP_SESSION_ID=$(parse_field "session_id"); then
   log "ERROR: failed to read JSON state file"
   fail_open "malformed state file (a field could not be read)"
 fi
@@ -293,6 +311,13 @@ if [ "$BASELINE_TREE" = "null" ]; then
 fi
 if [ "$CONFIGURED_REVIEW_TIMEOUT" = "null" ]; then
   CONFIGURED_REVIEW_TIMEOUT=""
+fi
+if [ "$LOOP_SESSION_ID" = "null" ]; then
+  LOOP_SESSION_ID=""
+fi
+LOOP_SESSION_ID=$("$REVIEWER_SCRIPTS_DIR/normalize-session-id.sh" "$LOOP_SESSION_ID" 2>/dev/null || true)
+if [ -n "$LOOP_SESSION_ID" ] && [ -n "$HOOK_SESSION_ID" ] && [ "$LOOP_SESSION_ID" != "$HOOK_SESSION_ID" ]; then
+  log "Stop hook for session $HOOK_SESSION_ID is running the review loop in $LOOP_ROOT, started by session $LOOP_SESSION_ID"
 fi
 # jq accepts 1800.0 or 1e3 as integral numbers but prints them in a form
 # that shell arithmetic rejects.
@@ -352,6 +377,8 @@ case "$REVIEWER" in
     fail_open "unsupported reviewer in the state file"
     ;;
 esac
+# Claude copies `bash <runner>` verbatim, so the path must survive the shell.
+printf -v RUNNER_SCRIPT_QUOTED '%q' "$RUNNER_SCRIPT"
 
 REVIEWER_DISPATCHER="$REVIEWER_SCRIPTS_DIR/run-reviewer.sh"
 
@@ -659,7 +686,7 @@ render_prompt_template() {
   replace_prompt_placeholder "__REVIEWER__" "$REVIEWER"
   replace_prompt_placeholder "__ROUND__" "$ROUND"
   replace_prompt_placeholder "__REVIEW_STATUS__" "$REVIEW_STATUS"
-  replace_prompt_placeholder "__RUNNER_SCRIPT__" "$RUNNER_SCRIPT"
+  replace_prompt_placeholder "__RUNNER_SCRIPT__" "$RUNNER_SCRIPT_QUOTED"
   replace_prompt_placeholder "__REVIEW_FILE__" "$LOOP_ROOT/$REVIEW_FILE"
   replace_prompt_placeholder "__REVIEW_DIR__" "$LOOP_ROOT/$REVIEW_DIR"
   replace_prompt_placeholder "__SUMMARY_FILE__" "$LOOP_ROOT/$SUMMARY_FILE"
@@ -871,7 +898,7 @@ wait_for_live_runner() {
   fi
 
   log "WARN: the ${REVIEWER} review is still running after waiting ${waited}s; the Stop hook budget is spent (runner pid=$runner_pid, hook timeout ${HOOK_TIMEOUT}s)"
-  reason="The ${REVIEWER} review started with bash ${RUNNER_SCRIPT} is still running (pid ${runner_pid}). Do not start another run. Wait for its background completion notification, then read ${LOOP_ROOT}/${REVIEW_FILE} and continue; the Stop hook evaluates the review once the run has finished."
+  reason="The ${REVIEWER} review started with bash ${RUNNER_SCRIPT_QUOTED} is still running (pid ${runner_pid}). Do not start another run. Wait for its background completion notification, then read ${LOOP_ROOT}/${REVIEW_FILE} and continue; the Stop hook evaluates the review once the run has finished."
   system_message="Review Loop [${REVIEW_ID}] — ${REVIEWER} review still running after the Stop hook waited ${waited}s; waiting for the rerun to finish"
   jq -n --arg r "$reason" --arg s "$system_message" \
     '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
@@ -1225,11 +1252,11 @@ RUNNER_EOF
     if [ "$REVIEW_TIMED_OUT" = "true" ] && [ "$EFFECTIVE_REVIEW_TIMEOUT" -le 0 ]; then
       REVIEW_STATUS="timed out before it started: the Stop hook had no time left inside its ${HOOK_TIMEOUT}s Claude Code timeout (the review limit of ${CONFIGURED_REVIEW_TIMEOUT}s comes from ${TIMEOUT_SETTINGS}); rerun it with the generated script"
       SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out: no time left in the ${HOOK_TIMEOUT}s Stop hook (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
-      FALLBACK_REASON="The ${REVIEWER} review timed out before it started. Rerun it: bash ${RUNNER_SCRIPT}"
+      FALLBACK_REASON="The ${REVIEWER} review timed out before it started. Rerun it: bash ${RUNNER_SCRIPT_QUOTED}"
     elif [ "$REVIEW_TIMED_OUT" = "true" ]; then
-      REVIEW_STATUS="timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds and was stopped; any partial output was quarantined as ${REVIEW_FILE}.reviewer-error.<n> (the limit comes from ${TIMEOUT_SETTINGS}); rerun it with the generated script"
+      REVIEW_STATUS="timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds and was stopped; any partial output was quarantined as ${LOOP_ROOT}/${REVIEW_FILE}.reviewer-error.<n> (the limit comes from ${TIMEOUT_SETTINGS}); rerun it with the generated script"
       SYS_MSG="Review Loop [${REVIEW_ID}] — ${REVIEWER} review timed out after ${EFFECTIVE_REVIEW_TIMEOUT}s (limit set by REVIEW_LOOP_REVIEW_TIMEOUT / review_timeout)"
-      FALLBACK_REASON="The ${REVIEWER} review timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds. Rerun it: bash ${RUNNER_SCRIPT}"
+      FALLBACK_REASON="The ${REVIEWER} review timed out after ${EFFECTIVE_REVIEW_TIMEOUT} seconds. Rerun it: bash ${RUNNER_SCRIPT_QUOTED}"
     elif review_artifact_is_usable "$REVIEW_FILE"; then
       log "Review artifact ready (review_id=$REVIEW_ID, round=$ROUND, file=$REVIEW_FILE)"
       if [ "$REVIEWER_EXIT" -eq 0 ]; then
@@ -1248,7 +1275,7 @@ RUNNER_EOF
     fi
     jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
       '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
-      || printf '{"decision":"block","reason":"%s","systemMessage":"%s"}\n' "$FALLBACK_REASON" "$SYS_MSG"
+      || printf '{"decision":"block","reason":"%s","systemMessage":"%s"}\n' "$(json_safe "$FALLBACK_REASON")" "$(json_safe "$SYS_MSG")"
     ;;
 
   addressing)
@@ -1340,7 +1367,7 @@ RUNNER_EOF
         fi
         jq -n --arg r "$REASON" --arg s "$SYS_MSG" \
           '{decision:"block", reason:$r, systemMessage:$s}' 2>/dev/null \
-          || printf '{"decision":"block","reason":"%s review not yet complete. Run: bash %s","systemMessage":"%s"}\n' "$REVIEWER" "$RUNNER_SCRIPT" "$SYS_MSG"
+          || printf '{"decision":"block","reason":"%s review not yet complete. Run: bash %s","systemMessage":"%s"}\n' "$REVIEWER" "$(json_safe "$RUNNER_SCRIPT_QUOTED")" "$(json_safe "$SYS_MSG")"
       fi
     else
       # Neither review nor runner script — orphaned state, fail-open

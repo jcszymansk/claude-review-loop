@@ -16,10 +16,6 @@ if loop_root="$("$SCRIPT_DIR/find-loop-root.sh" "$PWD" "${1:-}" 2>/dev/null)"; t
     printf 'Error: cannot enter the review loop directory %s\n' "$loop_root" >&2
     exit 1
   fi
-elif [ -f "$STATE_FILE" ]; then
-  # The loop here belongs to another session; its files are not ours to remove.
-  printf 'No active review loop found.\n'
-  exit 0
 fi
 
 runtime_files=(

@@ -15,9 +15,15 @@
 #
 #   session A -> /repo      session B -> /repo/sub      other -> none
 #
-# A state file in <start-dir> itself is used unless it names a different
-# session; state without an owner (older setups, unreadable files) is only
-# used from its own directory, where the hook can still report its problems.
+# 1. The nearest loop whose session_id is this session wins.
+# 2. Otherwise a loop in <start-dir> itself is used whatever its owner, as
+#    before sessions were recorded: /clear starts a new session id, and older
+#    or unreadable state has no owner, but the loop there must still run and
+#    stay cancellable.
+#
+# The walk stops at a directory holding `.git`: a git worktree (Claude Code
+# puts them under <repo>/.claude/worktrees/) or a nested repository is a
+# checkout of its own and must not review its parent's files.
 set -euo pipefail
 
 STATE_PATH=".claude/review-loop.local.json"
@@ -46,23 +52,24 @@ state_owner() {
   "$SCRIPT_DIR/normalize-session-id.sh" "$owner"
 }
 
-candidate="$dir"
-while :; do
-  state_file="${candidate%/}/$STATE_PATH"
-  if [ -f "$state_file" ]; then
-    owner="$(state_owner "$state_file")"
-    if [ "$candidate" = "$dir" ]; then
-      if [ -z "$owner" ] || [ -z "$session_id" ] || [ "$owner" = "$session_id" ]; then
-        printf '%s\n' "$candidate"
-        exit 0
-      fi
-    elif [ -n "$owner" ] && [ "$owner" = "$session_id" ]; then
+if [ -n "$session_id" ]; then
+  candidate="$dir"
+  while :; do
+    state_file="${candidate%/}/$STATE_PATH"
+    if [ -f "$state_file" ] && [ "$(state_owner "$state_file")" = "$session_id" ]; then
       printf '%s\n' "$candidate"
       exit 0
     fi
-  fi
-  [ "$candidate" = "/" ] && break
-  candidate="${candidate%/*}"
-  [ -n "$candidate" ] || candidate="/"
-done
+    if [ -e "${candidate%/}/.git" ] || [ "$candidate" = "/" ]; then
+      break
+    fi
+    candidate="${candidate%/*}"
+    [ -n "$candidate" ] || candidate="/"
+  done
+fi
+
+if [ -f "${dir%/}/$STATE_PATH" ]; then
+  printf '%s\n' "$dir"
+  exit 0
+fi
 exit 1
